@@ -748,6 +748,7 @@ export function TrendTracker({
                                     }
                                     className="w-full mt-4"
                                 >
+                                    {" "}
                                     {loading ? (
                                         <>
                                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1958,7 +1959,10 @@ export function TrendTracker({
                                                     r.score ||
                                                     r.averageScore ||
                                                     0,
-                                            }))
+                                            })) as Array<{
+                                            region: string;
+                                            score: number;
+                                        }>
                                     }
                                     personaPerformance={
                                         (latestResult.personaPerformance || [])
@@ -1969,7 +1973,10 @@ export function TrendTracker({
                                                     p.score ||
                                                     p.averageScore ||
                                                     0,
-                                            }))
+                                            })) as Array<{
+                                            persona: string;
+                                            score: number;
+                                        }>
                                     }
                                 />
 

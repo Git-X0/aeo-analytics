@@ -1,0 +1,23 @@
+The "Run analysis" button is located in `components/trend-tracker.tsx`. Here is the relevant JSX/HTML code:
+
+```html
+<Button
+    onClick={runAnalysis}
+    disabled={
+        loading ||
+        queries.length === 0 ||
+        !brand ||
+        !apiKeyStored
+    }
+    className="w-full mt-4"
+>
+    {loading ? (
+        <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Analyzuji...
+        </>
+    ) : (
+        "Spustit analýzu"
+    )}
+</Button>
+```

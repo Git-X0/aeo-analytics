@@ -78,6 +78,18 @@ export function AnalysisConfigForm({
               {showApiKey ? "Skrýt" : "Zobrazit"}
             </Button>
           </div>
+          <div className="flex gap-2 justify-end">
+            {!apiKeyStored && apiKey && (
+              <Button type="button" size="sm" onClick={saveApiKey}>
+                Uložit API klíč
+              </Button>
+            )}
+            {apiKeyStored && (
+              <Button type="button" variant="destructive" size="sm" onClick={clearApiKey}>
+                Smazat API klíč
+              </Button>
+            )}
+          </div>
           <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
             <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
             <div className="flex-1">
