@@ -1,18 +1,68 @@
 import { generateText } from "ai"
+import OpenAI from "openai"
+import { NextResponse } from "next/server"; // Import NextResponse for richer error handling
 
 export const maxDuration = 30
 
+// Helper function to analyze sentiment
+async function getSentiment(openai: OpenAI, brandName: string, text: string): Promise<"positive" | "neutral" | "negative"> {
+  try {
+    const { text: sentimentText } = await generateText({
+      model: openai.chat("gpt-5-mini"),
+      prompt: `Analyze the sentiment of how "${brandName}" is mentioned in this text. Respond with only one word: "positive", "negative", or "neutral".\n\nText: ${text}`,
+      maxOutputTokens: 20,
+    })
+
+    const sentimentResult = sentimentText.toLowerCase().trim()
+    if (sentimentResult.includes("positive")) {
+      return "positive"
+    } else if (sentimentResult.includes("negative")) {
+      return "negative"
+    }
+    return "neutral"
+  } catch (sentimentError) {
+    console.error("[v0] Sentiment analysis failed for", brandName, sentimentError);
+    return "neutral"; // Default to neutral if sentiment analysis fails
+  }
+}
+
 export async function POST(req: Request) {
   try {
-    const { query, brand, competitors = [] } = await req.json()
+    const { query, brand, competitors = [], apiKey: requestApiKey } = await req.json()
+
+    const apiKey = requestApiKey || process.env.OPENAI_API_KEY;
+
+    if (!apiKey) {
+      return NextResponse.json(
+        {
+          error: "API key not configured",
+          message: "Please provide an OpenAI API key in the form or set OPENAI_API_KEY environment variable.",
+          instructions: "Go to https://platform.openai.com/api-keys to create a new API key.",
+        },
+        { status: 500 }
+      );
+    }
+
+    if (!apiKey.startsWith("sk-")) {
+      return NextResponse.json(
+        {
+          error: "Invalid API key format",
+          message: "OpenAI API key must start with 'sk-'. Please check your key.",
+          instructions: "Verify your API key at https://platform.openai.com/api-keys",
+        },
+        { status: 400 }
+      );
+    }
+
+    const openai = new OpenAI({ apiKey });
 
     if (!query || !brand) {
-      return Response.json({ error: "Query and brand are required" }, { status: 400 })
+      return NextResponse.json({ error: "Query and brand are required" }, { status: 400 })
     }
 
     // Generate AI response for the query
     const { text: aiResponse } = await generateText({
-      model: "openai/gpt-5-mini",
+      model: openai.chat("gpt-5-mini"),
       prompt: query,
       maxOutputTokens: 1000,
     })
@@ -39,19 +89,8 @@ export async function POST(req: Request) {
         }
       })
 
-      // Analyze sentiment using AI
-      const { text: sentimentText } = await generateText({
-        model: "openai/gpt-5-mini",
-        prompt: `Analyze the sentiment of how "${brand}" is mentioned in this text. Respond with only one word: "positive", "negative", or "neutral".\n\nText: ${aiResponse}`,
-        maxOutputTokens: 20, // Increased from 10 to 20 (minimum is 16)
-      })
-
-      const sentiment = sentimentText.toLowerCase().trim()
-      if (sentiment.includes("positive")) {
-        brandMentions.sentiment = "positive"
-      } else if (sentiment.includes("negative")) {
-        brandMentions.sentiment = "negative"
-      }
+      // Analyze sentiment using AI helper function
+      brandMentions.sentiment = await getSentiment(openai, brand, aiResponse);
     }
 
     // Analyze competitor mentions
@@ -63,18 +102,7 @@ export async function POST(req: Request) {
         let sentiment: "positive" | "neutral" | "negative" = "neutral"
 
         if (count > 0) {
-          const { text: sentimentText } = await generateText({
-            model: "openai/gpt-5-mini",
-            prompt: `Analyze the sentiment of how "${competitor}" is mentioned in this text. Respond with only one word: "positive", "negative", or "neutral".\n\nText: ${aiResponse}`,
-            maxOutputTokens: 20, // Increased from 10 to 20 (minimum is 16)
-          })
-
-          const sentimentResult = sentimentText.toLowerCase().trim()
-          if (sentimentResult.includes("positive")) {
-            sentiment = "positive"
-          } else if (sentimentResult.includes("negative")) {
-            sentiment = "negative"
-          }
+          sentiment = await getSentiment(openai, competitor, aiResponse);
         }
 
         return {
@@ -89,11 +117,11 @@ export async function POST(req: Request) {
     let visibilityScore = 0
 
     if (brandMentions.found) {
-      visibilityScore += 40 // Base score for being mentioned
-      visibilityScore += Math.min(brandMentions.count * 10, 20) // Up to 20 points for multiple mentions
+      visibilityScore += 40
+      visibilityScore += Math.min(brandMentions.count * 10, 20)
 
       if (brandMentions.positions[0] <= 2) {
-        visibilityScore += 15 // Bonus for early mention
+        visibilityScore += 15
       }
 
       if (brandMentions.sentiment === "positive") {
@@ -131,7 +159,7 @@ export async function POST(req: Request) {
       recommendations.push(`${topCompetitor.name} má více zmínek než váš brand. Analyzujte jejich strategii a obsah.`)
     }
 
-    return Response.json({
+    return NextResponse.json({ // Use NextResponse.json here
       aiResponse,
       brandMentions,
       competitorMentions: competitorMentions.filter((c) => c.count > 0),
@@ -140,6 +168,9 @@ export async function POST(req: Request) {
     })
   } catch (error) {
     console.error("[v0] Analysis error:", error)
-    return Response.json({ error: "Analysis failed" }, { status: 500 })
+    return NextResponse.json(
+      { error: "Analysis failed", details: error instanceof Error ? error.message : String(error) },
+      { status: 500 }
+    );
   }
 }
