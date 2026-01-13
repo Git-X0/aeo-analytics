@@ -601,246 +601,25 @@ export async function POST(request: NextRequest) {
         );
 
         if (hasInsufficientData) {
-            const demoCompetitors = [
-                "Hootsuite",
-                "Buffer",
-                "Sprout Social",
-                "Later",
-                "CoSchedule",
-            ];
-            const demoRegions = ["us", "eu", "asia", "latam"];
-            const demoPersonas = ["b2b", "b2c", "developer"];
-
-            const demoCategories = [
-                {
-                    category: "product",
-                    count: 15,
-                    sentiment: "positive" as const,
-                    examples: [
-                        `${brand} offers comprehensive social media management with intuitive scheduling`,
-                        `The platform includes advanced analytics and team collaboration features`,
-                    ],
-                },
-                {
-                    category: "pricing",
-                    count: 8,
-                    sentiment: "positive" as const,
-                    examples: [
-                        `${brand} provides competitive pricing for small to medium businesses`,
-                        `Flexible plans with transparent pricing structure`,
-                    ],
-                },
-                {
-                    category: "quality",
-                    count: 12,
-                    sentiment: "positive" as const,
-                    examples: [
-                        `Users praise ${brand} for its reliability and uptime`,
-                        `Consistent performance across all integrated platforms`,
-                    ],
-                },
-                {
-                    category: "support",
-                    count: 6,
-                    sentiment: "neutral" as const,
-                    examples: [
-                        `${brand} offers email and chat support during business hours`,
-                        `Knowledge base available for self-service troubleshooting`,
-                    ],
-                },
-                {
-                    category: "performance",
-                    count: 10,
-                    sentiment: "positive" as const,
-                    examples: [
-                        `${brand} delivers fast loading times and responsive interface`,
-                        `Efficient bulk scheduling capabilities`,
-                    ],
-                },
-                {
-                    category: "features",
-                    count: 14,
-                    sentiment: "positive" as const,
-                    examples: [
-                        `${brand} includes AI-powered content suggestions`,
-                        `Multi-platform publishing with unified calendar view`,
-                    ],
-                },
-            ];
-
-            const demoQuotes = [
-                {
-                    text: `${brand} stands out for its user-friendly interface and powerful analytics`,
-                    category: "product",
-                    sentiment: "positive",
-                },
-                {
-                    text: `The pricing is reasonable compared to enterprise alternatives`,
-                    category: "pricing",
-                    sentiment: "positive",
-                },
-                {
-                    text: `${brand} delivers consistent performance with minimal downtime`,
-                    category: "quality",
-                    sentiment: "positive",
-                },
-                {
-                    text: `While support is adequate, response times could be faster`,
-                    category: "support",
-                    sentiment: "neutral",
-                },
-                {
-                    text: `The automation features save significant time for marketing teams`,
-                    category: "features",
-                    sentiment: "positive",
-                },
-                {
-                    text: `${brand}'s analytics provide actionable insights for campaign optimization`,
-                    category: "performance",
-                    sentiment: "positive",
-                },
-            ];
-
+            const brandName = typeof brand === "string" ? brand : "Unknown";
             return NextResponse.json({
-                globalScore: 67,
-                isDemo: true,
-                demoReason:
-                    "Brand nezmíněn v AI odpovědích - zobrazuji demo data pro ilustraci",
+                globalScore: 0,
+                noMentionsFound: true,
                 contextResults: validContextResults,
-                regionPerformance: demoRegions.map((region) => ({
-                    region,
-                    score: Math.floor(Math.random() * 30) + 50,
-                })),
-                personaPerformance: demoPersonas.map((persona) => ({
-                    persona,
-                    score: Math.floor(Math.random() * 40) + 40,
-                })),
-                competitorMentions: [
-                    {
-                        brand: brand,
-                        count: 12,
-                        avgPosition: 145,
-                        sentiment: "positive",
-                    },
-                    ...demoCompetitors.map((comp, i) => ({
-                        brand: comp,
-                        count: Math.floor(Math.random() * 15) + 5,
-                        avgPosition: Math.floor(Math.random() * 300) + 100,
-                        sentiment: ["positive", "neutral", "negative"][
-                            Math.floor(Math.random() * 3)
-                        ] as "positive" | "neutral" | "negative",
-                    })),
-                ].sort((a, b) => b.count - a.count),
-                allDetectedCompetitors: [brand, ...demoCompetitors],
-                sentimentBreakdown: { positive: 65, neutral: 25, negative: 10 },
-                contextAnalysis: [
-                    {
-                        context: `${brand} je prezentován jako inovativní řešení pro správu sociálních médií s důrazem na týmovou spolupráci.`,
-                        mentions: 8,
-                        sentiment: "positive",
-                    },
-                    {
-                        context: `AI zmiňuje ${brand} v kontextu cenové dostupnosti, kde je srovnáván s enterprise alternativami.`,
-                        mentions: 4,
-                        sentiment: "neutral",
-                    },
-                    {
-                        context: `${brand} je doporučován pro malé až střední firmy díky intuitivnímu rozhraní a rychlému onboardingu.`,
-                        mentions: 6,
-                        sentiment: "positive",
-                    },
-                ],
+                regionPerformance: [],
+                personaPerformance: [],
+                competitorMentions: [],
+                allDetectedCompetitors: [brand],
+                sentimentBreakdown: { positive: 0, neutral: 100, negative: 0 },
+                contextAnalysis: [],
                 recommendations: [
-                    `Vaše viditelnost je nadprůměrná (67/100). Pokračujte v budování pozitivního sentimentu.`,
-                    `Máte silnou pozici v US (72) a EU (68), ale nižší v Asia (54). Zvažte asijský marketing.`,
-                    `Hootsuite má 18 zmínek vs. vaše 12. Zvyšte PR aktivitu a SEO optimalizaci pro klíčové dotazy.`,
-                    `Sentiment breakdown ukazuje 10% negativních zmínek. Zaměřte se na řešení častých problémů zákazníků.`,
+                    "No mentions of your brand were found in the AI-generated responses. Try a broader query or different personas/regions."
                 ],
-                deepContextAnalysis: {
-                    categories: demoCategories,
-                    quotes: demoQuotes,
-                    keywordAssociations: [
-                        {
-                            keyword: "intuitive",
-                            count: 8,
-                            sentiment: "positive",
-                        },
-                        {
-                            keyword: "affordable",
-                            count: 6,
-                            sentiment: "positive",
-                        },
-                        {
-                            keyword: "reliable",
-                            count: 7,
-                            sentiment: "positive",
-                        },
-                        {
-                            keyword: "limited features",
-                            count: 2,
-                            sentiment: "negative",
-                        },
-                    ],
-                },
-                linksByBrand: {
-                    [brand]: [
-                        {
-                            url: `https://www.${brand
-                                .toLowerCase()
-                                .replace(/\s+/g, "")}.com`,
-                            brand: brand,
-                            count: 8,
-                            title: `${brand} - Official Website`,
-                        },
-                        {
-                            url: `https://www.${brand
-                                .toLowerCase()
-                                .replace(/\s+/g, "")}.com/pricing`,
-                            brand: brand,
-                            count: 5,
-                            title: `${brand} Pricing`,
-                        },
-                        {
-                            url: `https://www.${brand
-                                .toLowerCase()
-                                .replace(/\s+/g, "")}.com/features`,
-                            brand: brand,
-                            count: 3,
-                            title: `${brand} Features`,
-                        },
-                    ],
-                    Hootsuite: [
-                        {
-                            url: "https://hootsuite.com",
-                            brand: "Hootsuite",
-                            count: 12,
-                            title: "Hootsuite Homepage",
-                        },
-                        {
-                            url: "https://hootsuite.com/plans",
-                            brand: "Hootsuite",
-                            count: 7,
-                            title: "Hootsuite Plans",
-                        },
-                    ],
-                    Buffer: [
-                        {
-                            url: "https://buffer.com",
-                            brand: "Buffer",
-                            count: 9,
-                            title: "Buffer Homepage",
-                        },
-                        {
-                            url: "https://buffer.com/pricing",
-                            brand: "Buffer",
-                            count: 5,
-                            title: "Buffer Pricing",
-                        },
-                    ],
-                },
+                deepContextAnalysis: null,
+                linksByBrand: {},
                 timestamp: new Date().toISOString(),
                 query,
-                brand: brand,
+                brand: brandName,
                 usage: {
                     inputTokens: totalInputTokens,
                     outputTokens: totalOutputTokens,
@@ -996,23 +775,11 @@ export async function POST(request: NextRequest) {
                 : { positive: 0, neutral: 100, negative: 0 };
 
         const brandName = typeof brand === "string" ? brand : "Unknown";
-        const contextAnalysis = [
-            {
-                context: `${brandName} je prezentován jako vedoucí řešení v oblasti s důrazem na inovaci a kvalitu.`,
-                mentions: Math.floor(Math.random() * 5) + 1,
-                sentiment: "positive" as const,
-            },
-            {
-                context: `AI zmiňuje ${brandName} v kontextu cenové dostupnosti, kde je srovnáván s premium alternativami.`,
-                mentions: Math.floor(Math.random() * 3) + 1,
-                sentiment: "neutral" as const,
-            },
-            {
-                context: `${brandName} je doporučován pro malé až střední firmy díky snadnému použití.`,
-                mentions: Math.floor(Math.random() * 4) + 1,
-                sentiment: "positive" as const,
-            },
-        ];
+        const contextAnalysis = deepContextAnalysis?.categories?.map((cat: any) => ({
+            context: cat.examples?.[0] || `Brand mentioned in context of ${cat.category}`,
+            mentions: cat.count,
+            sentiment: cat.sentiment,
+        })) || [];
 
         const topCompetitor = competitorStats[0]?.name || "konkurence";
         const topRegion =

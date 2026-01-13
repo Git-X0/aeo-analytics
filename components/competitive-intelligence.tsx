@@ -25,8 +25,6 @@ interface CompetitorData {
   avgPosition: number
   sentiment: string
   shareOfVoice: number
-  strengths: string[]
-  weaknesses: string[]
 }
 
 interface CompetitiveIntelligenceProps {
@@ -245,33 +243,7 @@ export function CompetitiveIntelligence({ myBrand, competitors, totalMentions }:
                     </div>
                   </div>
 
-                  {comp.strengths.length > 0 && (
-                    <div className="mb-3">
-                      <div className="flex items-center gap-1 mb-1">
-                        <Award className="h-4 w-4 text-green-600" />
-                        <span className="text-xs font-semibold text-green-700">Silné stránky:</span>
-                      </div>
-                      <ul className="text-xs text-gray-600 space-y-1">
-                        {comp.strengths.map((s, i) => (
-                          <li key={i}>• {s}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {comp.weaknesses.length > 0 && (
-                    <div>
-                      <div className="flex items-center gap-1 mb-1">
-                        <AlertCircle className="h-4 w-4 text-orange-600" />
-                        <span className="text-xs font-semibold text-orange-700">Slabé stránky:</span>
-                      </div>
-                      <ul className="text-xs text-gray-600 space-y-1">
-                        {comp.weaknesses.map((w, i) => (
-                          <li key={i}>• {w}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
+                  {/* Strengths and Weaknesses removed as they were demo data */}
                 </div>
               )
             })}
@@ -302,9 +274,7 @@ export function CompetitiveIntelligence({ myBrand, competitors, totalMentions }:
                       <p className="text-sm text-red-800">
                         Má o <strong>{advantageCount} zmínek více</strong> ({advantagePercent}% advantage)
                       </p>
-                      {comp.strengths.length > 0 && (
-                        <p className="text-xs text-red-700 mt-2">Jejich silné stránky: {comp.strengths.join(", ")}</p>
-                      )}
+                      {/* Strengths removed as they were demo data */}
                     </div>
                     <Badge variant="destructive">#{idx + 1}</Badge>
                   </div>

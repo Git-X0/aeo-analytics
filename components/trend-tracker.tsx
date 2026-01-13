@@ -141,6 +141,7 @@ interface AnalysisResult {
     globalScore: number;
     isDemo?: boolean;
     demoReason?: string;
+    noMentionsFound?: boolean;
     regionPerformance: Array<{
         region: string;
         score?: number;
@@ -369,31 +370,7 @@ export function TrendTracker({
         }
     }, [results, queries.length, frequency]);
 
-    useEffect(() => {
-        // Generování demo historických dat při prvním načtení
-        const generateDemoHistory = () => {
-            const today = new Date();
-            const data = [];
-            for (let i = 30; i >= 0; i--) {
-                const date = new Date(today);
-                date.setDate(date.getDate() - i);
-                // Simulace trendu s náhodnou variací
-                const baseScore = 45 + (30 - i) * 0.5 + Math.random() * 10;
-                data.push({
-                    date: date.toLocaleDateString("cs-CZ", {
-                        day: "2-digit",
-                        month: "2-digit",
-                    }),
-                    score: Math.round(baseScore),
-                });
-            }
-            setHistoricalData(data);
-        };
 
-        if (historicalData.length === 0) {
-            generateDemoHistory();
-        }
-    }, []);
 
     const addQuery = () => {
         const trimmedQuery = currentQuery.trim();
@@ -606,8 +583,6 @@ export function TrendTracker({
               .map((comp, index) => ({
                   ...comp,
                   rank: index + 1,
-                  // Simulate month-over-month change (-3 to +3)
-                  rankChange: Math.floor(Math.random() * 7) - 3,
               }))
         : [];
 
@@ -624,21 +599,6 @@ export function TrendTracker({
                           0
                       )) *
                   100,
-              strengths:
-                  comp.brand.toLowerCase() === brand.toLowerCase()
-                      ? [
-                            "Silná viditelnost v B2B segmentu",
-                            "Pozitivní sentiment",
-                            "Kvalitní dokumentace",
-                        ]
-                      : ["Etablovaná značka", "Rozsáhlá funkcionalita"],
-              weaknesses:
-                  comp.brand.toLowerCase() === brand.toLowerCase()
-                      ? [
-                            "Nižší penetrace v LATAM",
-                            "Méně zmínek než top konkurence",
-                        ]
-                      : ["Vyšší cena", "Komplexnější onboarding"],
           }))
         : [];
 
@@ -857,7 +817,55 @@ export function TrendTracker({
                         )}
 
                         {/* Results Section */}
-                        {aggregated && latestResult && (
+                        {loading && (
+                            <Card className="flex flex-col items-center justify-center p-12 text-center">
+                                <Loader2 className="w-12 h-12 text-blue-500 animate-spin mb-4" />
+                                <CardTitle>Analyzuji...</CardTitle>
+                                <CardDescription>
+                                    Právě probíhá komplexní analýza. Tento
+                                    proces může trvat až 60 sekund.
+                                </CardDescription>
+                            </Card>
+                        )}
+
+                        {!loading &&
+                            !aggregated &&
+                            !error && (
+                                <Card className="flex flex-col items-center justify-center p-12 text-center">
+                                    <Lightbulb className="w-12 h-12 text-blue-500 mb-4" />
+                                    <CardTitle>Jste připraveni?</CardTitle>
+                                    <CardDescription>
+                                        Nakonfigurujte analýzu vlevo a spusťte
+                                        ji, abyste viděli přehled viditelnosti
+                                        vašeho brandu.
+                                    </CardDescription>
+                                </Card>
+                            )}
+
+                        {error && (
+                            <Card className="flex flex-col items-center justify-center p-12 text-center bg-red-50 border-red-200">
+                                <Info className="w-12 h-12 text-red-500 mb-4" />
+                                <CardTitle>Chyba analýzy</CardTitle>
+                                <CardDescription>{error}</CardDescription>
+                            </Card>
+                        )}
+
+                        {!loading &&
+                            latestResult &&
+                            (latestResult.noMentionsFound ||
+                                latestResult.globalScore === 0) && (
+                                <Card className="flex flex-col items-center justify-center p-12 text-center">
+                                    <Info className="w-12 h-12 text-gray-500 mb-4" />
+                                    <CardTitle>Nebyly nalezeny žádné zmínky</CardTitle>
+                                    <CardDescription>
+                                        V AI odpovědích nebyla nalezena žádná
+                                        zmínka o vašem brandu. Zkuste upravit
+                                        dotaz nebo změnit persony a regiony.
+                                    </CardDescription>
+                                </Card>
+                            )}
+
+                        {!loading && aggregated && latestResult && !latestResult.noMentionsFound && latestResult.globalScore > 0 && (
                             <div className="space-y-6">
                                 {/* Hlavní metriky */}
                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -1544,47 +1552,10 @@ export function TrendTracker({
                                                         >
                                                             <div className="flex items-center gap-4 flex-1">
                                                                 <div className="w-12 text-center">
-                                                                    <div className="text-2xl font-bold text-gray-700">
-                                                                        #
-                                                                        {
-                                                                            comp.rank
-                                                                        }
-                                                                    </div>
-                                                                    {comp.rankChange !==
-                                                                        0 && (
-                                                                        <div
-                                                                            className={`text-xs flex items-center justify-center ${
-                                                                                comp.rankChange <
-                                                                                0
-                                                                                    ? "text-green-600"
-                                                                                    : comp.rankChange >
-                                                                                      0
-                                                                                    ? "text-red-600"
-                                                                                    : "text-gray-500"
-                                                                            }`}
-                                                                        >
-                                                                            {comp.rankChange <
-                                                                            0 ? (
-                                                                                <>
-                                                                                    <TrendingUp className="h-3 w-3 mr-0.5" />
-                                                                                    {Math.abs(
-                                                                                        comp.rankChange
-                                                                                    )}
-                                                                                </>
-                                                                            ) : comp.rankChange >
-                                                                              0 ? (
-                                                                                <>
-                                                                                    <TrendingDown className="h-3 w-3 mr-0.5" />
-                                                                                    {
-                                                                                        comp.rankChange
-                                                                                    }
-                                                                                </>
-                                                                            ) : (
-                                                                                <Minus className="h-3 w-3" />
-                                                                            )}
-                                                                        </div>
-                                                                    )}
+                                                                <div className="text-2xl font-bold text-gray-700">
+                                                                    #{comp.rank}
                                                                 </div>
+                                                            </div>
 
                                                                 <div className="flex-1">
                                                                     <div className="font-semibold text-gray-900 mb-1">
