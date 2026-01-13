@@ -1197,12 +1197,11 @@ export function TrendTracker({
                                                                                 )
                                                                                 .map(
                                                                                     (
-                                                                                        competitor
+                                                                                        competitor,
+                                                                                        index
                                                                                     ) => (
                                                                                         <div
-                                                                                            key={
-                                                                                                competitor.brand
-                                                                                            }
+                                                                                            key={`${competitor.brand}-${index}`}
                                                                                             className="flex items-center justify-between p-2 bg-gray-50 rounded"
                                                                                         >
                                                                                             <span className="font-medium">
@@ -1533,9 +1532,9 @@ export function TrendTracker({
                                         <CardContent>
                                             <div className="space-y-2">
                                                 {competitorRanking.map(
-                                                    (comp) => (
+                                                    (comp, index) => (
                                                         <div
-                                                            key={comp.brand}
+                                                            key={`ranking-${comp.brand}-${index}`}
                                                             className={`flex items-center justify-between p-4 rounded-lg border ${
                                                                 comp.brand.toLowerCase() ===
                                                                 brand.toLowerCase()
