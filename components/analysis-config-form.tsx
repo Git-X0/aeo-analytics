@@ -79,8 +79,8 @@ export function AnalysisConfigForm({
             </Button>
           </div>
           <div className="flex gap-2 justify-end">
-            {!apiKeyStored && apiKey && (
-              <Button type="button" size="sm" onClick={saveApiKey}>
+            {!apiKeyStored && (
+              <Button type="button" size="sm" onClick={saveApiKey} disabled={!apiKey}>
                 Uložit API klíč
               </Button>
             )}

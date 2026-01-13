@@ -436,6 +436,7 @@ export function TrendTracker({
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         query: query.trim(), // Ensure query is trimmed
+                        brand: brand,
                         competitors: competitors
                             .split(",")
                             .map((c: string) => c.trim())
