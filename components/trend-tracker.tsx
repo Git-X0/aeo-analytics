@@ -204,6 +204,11 @@ interface TrendTrackerProps {
         competitors: string[];
         frequency?: "daily" | "weekly" | "monthly";
         enabled: boolean;
+        // NEW: Add results and historicalData to the analysis object
+        results?: Record<string, AnalysisResult[]>;
+        historicalData?: Array<{ date: string; score: number }>;
+        totalCost?: number;
+        lastRun?: string;
     } | null;
     onSave: (data: any) => void;
     onBack: () => void;
@@ -235,127 +240,83 @@ export function TrendTracker({
         initialAnalysis?.enabled || false
     );
     const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null); // State for storing errors
+    const [error, setError] = useState<string | null>(null);
+
+    // Use results from initialAnalysis or empty object
     const [results, setResults] = useState<Record<string, AnalysisResult[]>>(
-        {}
+        initialAnalysis?.results || {}
     );
 
     const [apiKey, setApiKey] = useState("");
     const [showApiKey, setShowApiKey] = useState(false);
     const [apiKeyStored, setApiKeyStored] = useState(false);
 
-    const [totalCost, setTotalCost] = useState(0);
+    // Use totalCost from initialAnalysis or 0
+    const [totalCost, setTotalCost] = useState(initialAnalysis?.totalCost || 0);
     const [estimatedMonthlyCost, setEstimatedMonthlyCost] = useState(0);
 
     // State variables for user selections
-    const [currentQuery, setCurrentQuery] = useState(""); // State for the current input query
-    const [selectedModel, setSelectedModel] = useState("openai/gpt-4o"); // State for the selected AI model
+    const [currentQuery, setCurrentQuery] = useState("");
+    const [selectedModel, setSelectedModel] = useState("openai/gpt-4o");
     const [selectedPersonas, setSelectedPersonas] = useState<string[]>(
         PERSONAS.map((p) => p.id)
-    ); // State for selected personas
+    );
     const [selectedRegions, setSelectedRegions] = useState<string[]>(
         REGIONS.map((r) => r.id)
-    ); // State for selected regions
+    );
 
-    // Simulovaná historická data pro trendy
+    // Use historicalData from initialAnalysis or empty array
     const [historicalData, setHistoricalData] = useState<
         Array<{ date: string; score: number }>
-    >([]);
+    >(initialAnalysis?.historicalData || []);
 
     const [showOnboarding, setShowOnboarding] = useState(false);
 
+    // State to manage the open query accordion item for lazy rendering
+    const [openQueryAccordionItem, setOpenQueryAccordionItem] = useState<
+        string | undefined
+    >(undefined);
+
+    const resetState = () => {
+        setAnalysisName("");
+        setBrand("");
+        setQueries([]);
+        setCompetitors("");
+        setFrequency("weekly");
+        setAutoRunEnabled(false);
+        setResults({});
+        setHistoricalData([]);
+        setError(null);
+        setCurrentQuery("");
+        setTotalCost(0);
+        setEstimatedMonthlyCost(0);
+        // Do not reset API key, model, personas, regions as they are user/app settings
+    };
+
     useEffect(() => {
-        const savedResults = localStorage.getItem(
-            "brandvision_analysis_results"
-        );
-        if (savedResults) {
-            try {
-                const parsed = JSON.parse(savedResults);
-                setResults(parsed);
-                console.log(
-                    "[v0] Loaded saved results:",
-                    Object.keys(parsed).length,
-                    "queries"
-                );
-            } catch (error) {
-                console.error("[v0] Failed to load saved results:", error);
-            }
+        // Always call resetState when initialAnalysis changes to ensure a clean slate.
+        // This handles both new analysis (initialAnalysis is null) and switching between existing ones.
+        resetState();
+
+        if (initialAnalysis) {
+            // Load configuration from the existing analysis
+            setAnalysisName(initialAnalysis.name || "");
+            setBrand(initialAnalysis.brand || "");
+            setQueries(initialAnalysis.queries || []);
+            setCompetitors(initialAnalysis.competitors?.join(", ") || "");
+            setFrequency(initialAnalysis.frequency || "weekly");
+            setAutoRunEnabled(initialAnalysis.enabled || false);
+
+            // Load results and historical data from the analysis
+            setResults(initialAnalysis.results || {});
+            setHistoricalData(initialAnalysis.historicalData || []);
+            setTotalCost(initialAnalysis.totalCost || 0);
         }
-    }, []);
+        // If initialAnalysis is null, resetState() already cleared everything, so no need for else block.
+    }, [initialAnalysis]); // Dependency array
 
     useEffect(() => {
-        if (Object.keys(results).length > 0) {
-            localStorage.setItem(
-                "brandvision_analysis_results",
-                JSON.stringify(results)
-            );
-            console.log(
-                "[v0] Saved results to localStorage:",
-                Object.keys(results).length,
-                "queries"
-            );
-
-            // Also save to analysis_history for Dashboard compatibility
-            const allResults = Object.values(results).flat();
-            const historyData = allResults.map((r) => ({
-                visibilityScore: r.globalScore,
-                brandMentions: {
-                    found:
-                        r.competitorMentions?.some(
-                            (c) => c.brand.toLowerCase() === brand.toLowerCase()
-                        ) || false,
-                    count:
-                        r.competitorMentions?.find(
-                            (c) => c.brand.toLowerCase() === brand.toLowerCase()
-                        )?.count || 0,
-                },
-                model: r.usage?.model || "Unknown",
-                timestamp: r.timestamp,
-            }));
-            localStorage.setItem(
-                "analysis_history",
-                JSON.stringify(historyData)
-            );
-
-            // Save trend data for historical trends
-            const trendData = allResults.map((r, i) => ({
-                date: new Date(r.timestamp || Date.now()).toLocaleDateString(
-                    "cs-CZ",
-                    { day: "2-digit", month: "2-digit" }
-                ),
-                score: r.globalScore,
-                mentions:
-                    r.competitorMentions?.find(
-                        (c) => c.brand.toLowerCase() === brand.toLowerCase()
-                    )?.count || 0,
-            }));
-            // </CHANGE> Fixed duplicated JSON.JSON.stringify to just JSON.stringify
-            localStorage.setItem("trend_data", JSON.stringify(trendData));
-        }
-    }, [results, brand]);
-
-    useEffect(() => {
-        const stored = localStorage.getItem("brandvision_openai_key");
-        if (stored) {
-            setApiKey(stored);
-            setApiKeyStored(true);
-        }
-    }, []);
-
-    useEffect(() => {
-        const costHistory = localStorage.getItem("brandvision_cost_history");
-        if (costHistory) {
-            const history = JSON.parse(costHistory);
-            const total = history.reduce(
-                (sum: number, item: any) => sum + item.cost,
-                0
-            );
-            setTotalCost(total);
-        }
-    }, []);
-
-    useEffect(() => {
-        if (results && Object.keys(results).length > 0) {
+        if (results && Object.keys(results).length > 0 && initialAnalysis) {
             const latestResult = Object.values(results)[0]?.[0];
             if (latestResult?.usage?.cost) {
                 const costPerRun = latestResult.usage.cost * queries.length;
@@ -368,9 +329,7 @@ export function TrendTracker({
                 setEstimatedMonthlyCost(costPerRun * runsPerMonth);
             }
         }
-    }, [results, queries.length, frequency]);
-
-
+    }, [results, queries.length, frequency, initialAnalysis]);
 
     const addQuery = () => {
         const trimmedQuery = currentQuery.trim();
@@ -385,10 +344,12 @@ export function TrendTracker({
     };
 
     const runAnalysis = async () => {
-        // Start of new code for runAnalysis
         console.log("[v0] Starting analysis...");
         setLoading(true);
         setError(null);
+
+        // Don't clear results immediately - we want to append to existing results
+        // setResults({}); // REMOVED - don't clear previous results
 
         const validQueries = queries.filter((q) => q && q.trim().length > 0);
 
@@ -398,11 +359,9 @@ export function TrendTracker({
             return;
         }
 
-        // </CHANGE> End of new code for runAnalysis
-
         console.log("[v0] Starting analysis with queries:", validQueries);
         setLoading(true);
-        const newResults: Record<string, AnalysisResult[]> = {};
+        const newResults: Record<string, AnalysisResult[]> = { ...results }; // Start with existing results
         let runTotalCost = 0;
 
         for (const query of validQueries) {
@@ -412,7 +371,7 @@ export function TrendTracker({
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
-                        query: query.trim(), // Ensure query is trimmed
+                        query: query.trim(),
                         brand: brand,
                         competitors: competitors
                             .split(",")
@@ -438,17 +397,19 @@ export function TrendTracker({
                     throw new Error(data.error || "API call failed");
                 }
 
-                newResults[query] = [data];
+                // Append new result to existing results for this query
+                newResults[query] = [...(newResults[query] || []), data];
 
                 if (data.usage?.cost) {
                     runTotalCost += data.usage.cost;
                 }
 
                 if (!data.isDemo) {
-                    onSave({
+                    // Update the analysis with new data
+                    const updatedAnalysis = {
                         name: analysisName || `Analýza ${brand}`,
                         brand,
-                        queries: validQueries, // Save only valid queries
+                        queries: validQueries,
                         competitors: competitors
                             .split(",")
                             .map((c: string) => c.trim())
@@ -456,8 +417,25 @@ export function TrendTracker({
                         latestScore: data.globalScore,
                         frequency,
                         enabled: autoRunEnabled,
-                    });
+                        // NEW: Save results and historical data with the analysis
+                        results: newResults,
+                        historicalData: [
+                            ...historicalData,
+                            {
+                                date: new Date().toLocaleDateString("cs-CZ", {
+                                    day: "2-digit",
+                                    month: "2-digit",
+                                }),
+                                score: data.globalScore,
+                            },
+                        ].slice(-31),
+                        totalCost: totalCost + runTotalCost,
+                        lastRun: new Date().toISOString(),
+                    };
 
+                    onSave(updatedAnalysis);
+
+                    // Update historical data in state
                     setHistoricalData((prev) =>
                         [
                             ...prev,
@@ -476,41 +454,42 @@ export function TrendTracker({
                 alert(
                     `Analýza selhala pro dotaz "${query}". Zkontrolujte konzoli pro detaily.`
                 );
-                setError(`Chyba při analýze dotazu "${query}".`); // Set error state
-                setLoading(false); // Stop loading on error
-                return; // Stop processing further queries if one fails
+                setError(`Chyba při analýze dotazu "${query}".`);
+                setLoading(false);
+                return;
             }
         }
 
+        // Update total cost
         if (runTotalCost > 0) {
-            const costHistory = JSON.parse(
-                localStorage.getItem("brandvision_cost_history") || "[]"
-            );
-            costHistory.push({
-                date: new Date().toISOString(),
-                cost: runTotalCost,
-                queries: validQueries.length, // Count valid queries
-            });
-            localStorage.setItem(
-                "brandvision_cost_history",
-                JSON.stringify(costHistory)
-            );
-            setTotalCost((prev) => prev + runTotalCost);
+            const newTotalCost = totalCost + runTotalCost;
+            setTotalCost(newTotalCost);
+
+            // Also update the analysis with new total cost
+            if (initialAnalysis) {
+                const updatedAnalysis = {
+                    ...initialAnalysis,
+                    totalCost: newTotalCost,
+                    lastRun: new Date().toISOString(),
+                };
+                onSave(updatedAnalysis);
+            }
         }
 
-        setResults((prev) => ({ ...prev, ...newResults }));
+        // Update results state
+        setResults(newResults);
         setLoading(false);
     };
 
     const saveApiKey = () => {
         if (apiKey) {
-            localStorage.setItem("brandvision_openai_key", apiKey);
+            // Removed localStorage API key saving
             setApiKeyStored(true);
         }
     };
 
     const clearApiKey = () => {
-        localStorage.removeItem("brandvision_openai_key");
+        // Removed localStorage API key removal
         setApiKey("");
         setApiKeyStored(false);
     };
@@ -564,14 +543,17 @@ export function TrendTracker({
 
     const aggregated = aggregateResults();
     const latestResults = Object.values(results).flat();
-    const latestResult = latestResults[latestResults.length - 1];
+
+    // Get the latest result (most recent timestamp)
+    const latestResult = latestResults.sort(
+        (a, b) =>
+            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    )[0];
 
     console.log("[v0] Latest result:", latestResult);
     console.log("[v0] Has results:", latestResults.length > 0);
     console.log("[v0] Aggregated value:", aggregated);
-    console.log("[v0] Aggregated truthy check:", !!aggregated);
     console.log("[v0] Latest result truthy check:", !!latestResult);
-    console.log("[v0] Both conditions met:", !!(aggregated && latestResult));
 
     const competitorRanking = latestResult?.competitorMentions
         ? [...latestResult.competitorMentions]
@@ -610,7 +592,12 @@ export function TrendTracker({
     const queryResults = queries
         .map((q) => ({
             query: q,
-            result: results[q]?.[0],
+            // Get the most recent result for this query
+            result: results[q]?.sort(
+                (a, b) =>
+                    new Date(b.timestamp).getTime() -
+                    new Date(a.timestamp).getTime()
+            )[0],
         }))
         .filter((item) => item.result);
 
@@ -623,7 +610,13 @@ export function TrendTracker({
             <div className="container mx-auto p-6 max-w-7xl">
                 <div className="mb-6 flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                        <Button variant="ghost" onClick={onBack}>
+                        <Button
+                            variant="ghost"
+                            onClick={() => {
+                                resetState();
+                                onBack();
+                            }}
+                        >
                             <ArrowLeft className="mr-2 h-4 w-4" />
                             Zpět na přehled
                         </Button>
@@ -651,15 +644,63 @@ export function TrendTracker({
                                 ${estimatedMonthlyCost.toFixed(2)}
                             </div>
                         )}
+                        {initialAnalysis?.lastRun && (
+                            <div className="text-sm text-gray-500">
+                                <span className="font-medium">
+                                    Poslední běh:
+                                </span>{" "}
+                                {new Date(
+                                    initialAnalysis.lastRun
+                                ).toLocaleDateString("cs-CZ")}
+                            </div>
+                        )}
                         {aggregated && (
                             <Button onClick={exportToPDF} variant="outline">
                                 <Download className="mr-2 h-4 w-4" />
                                 Export do PDF
                             </Button>
                         )}
-                        {/* CHANGE: Removed ExportManager button from header */}
                     </div>
                 </div>
+
+                {/* NEW: Display analysis info */}
+                {initialAnalysis && (
+                    <Card className="mb-6 bg-blue-50">
+                        <CardContent className="pt-6">
+                            <div className="flex flex-wrap items-center justify-between gap-4">
+                                <div>
+                                    <h3 className="text-lg font-semibold text-blue-900">
+                                        {initialAnalysis.name}
+                                    </h3>
+                                    <p className="text-sm text-blue-700">
+                                        ID: {initialAnalysis.id} • Brand:{" "}
+                                        {brand} • {queries.length} dotazů
+                                    </p>
+                                </div>
+                                <div className="text-sm text-blue-800">
+                                    <div className="flex gap-4">
+                                        <span>
+                                            Celkem výsledků:{" "}
+                                            {latestResults.length}
+                                        </span>
+                                        <span>
+                                            Historických dat:{" "}
+                                            {historicalData.length}
+                                        </span>
+                                        {latestResult && (
+                                            <span>
+                                                Poslední analýza:{" "}
+                                                {new Date(
+                                                    latestResult.timestamp
+                                                ).toLocaleDateString("cs-CZ")}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-1 space-y-4">
@@ -697,6 +738,7 @@ export function TrendTracker({
                                     setFrequency={setFrequency}
                                     autoRunEnabled={autoRunEnabled}
                                     setAutoRunEnabled={setAutoRunEnabled}
+                                    onReset={resetState}
                                 />
 
                                 <Button
@@ -719,11 +761,46 @@ export function TrendTracker({
                                         "Spustit analýzu"
                                     )}
                                 </Button>
+
+                                {/* NEW: Button to save current state */}
+                                {initialAnalysis && (
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => {
+                                            const updatedAnalysis = {
+                                                ...initialAnalysis,
+                                                name: analysisName,
+                                                brand,
+                                                queries,
+                                                competitors: competitors
+                                                    .split(",")
+                                                    .map((c: string) =>
+                                                        c.trim()
+                                                    )
+                                                    .filter(Boolean),
+                                                frequency,
+                                                enabled: autoRunEnabled,
+                                                results,
+                                                historicalData,
+                                                totalCost,
+                                                lastRun:
+                                                    initialAnalysis.lastRun ||
+                                                    new Date().toISOString(),
+                                            };
+                                            onSave(updatedAnalysis);
+                                            alert("Konfigurace uložena!");
+                                        }}
+                                        className="w-full mt-2"
+                                    >
+                                        Uložit konfiguraci
+                                    </Button>
+                                )}
                             </CardContent>
                         </Card>
                     </div>
 
                     <div className="lg:col-span-2 space-y-4">
+                        {/* Rest of the UI remains the same... */}
                         {/* Vysvětlení výpočtu skóre */}
                         <Card className="bg-blue-50 border-blue-200">
                             <CardHeader>
@@ -828,19 +905,17 @@ export function TrendTracker({
                             </Card>
                         )}
 
-                        {!loading &&
-                            !aggregated &&
-                            !error && (
-                                <Card className="flex flex-col items-center justify-center p-12 text-center">
-                                    <Lightbulb className="w-12 h-12 text-blue-500 mb-4" />
-                                    <CardTitle>Jste připraveni?</CardTitle>
-                                    <CardDescription>
-                                        Nakonfigurujte analýzu vlevo a spusťte
-                                        ji, abyste viděli přehled viditelnosti
-                                        vašeho brandu.
-                                    </CardDescription>
-                                </Card>
-                            )}
+                        {!loading && !aggregated && !error && (
+                            <Card className="flex flex-col items-center justify-center p-12 text-center">
+                                <Lightbulb className="w-12 h-12 text-blue-500 mb-4" />
+                                <CardTitle>Jste připraveni?</CardTitle>
+                                <CardDescription>
+                                    Nakonfigurujte analýzu vlevo a spusťte ji,
+                                    abyste viděli přehled viditelnosti vašeho
+                                    brandu.
+                                </CardDescription>
+                            </Card>
+                        )}
 
                         {error && (
                             <Card className="flex flex-col items-center justify-center p-12 text-center bg-red-50 border-red-200">
@@ -856,7 +931,9 @@ export function TrendTracker({
                                 latestResult.globalScore === 0) && (
                                 <Card className="flex flex-col items-center justify-center p-12 text-center">
                                     <Info className="w-12 h-12 text-gray-500 mb-4" />
-                                    <CardTitle>Nebyly nalezeny žádné zmínky</CardTitle>
+                                    <CardTitle>
+                                        Nebyly nalezeny žádné zmínky
+                                    </CardTitle>
                                     <CardDescription>
                                         V AI odpovědích nebyla nalezena žádná
                                         zmínka o vašem brandu. Zkuste upravit
@@ -865,156 +942,1126 @@ export function TrendTracker({
                                 </Card>
                             )}
 
-                        {!loading && aggregated && latestResult && !latestResult.noMentionsFound && latestResult.globalScore > 0 && (
-                            <div className="space-y-6">
-                                {/* Hlavní metriky */}
-                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                    <Card>
-                                        <CardHeader className="pb-2">
-                                            <div className="flex items-center gap-2">
-                                                <CardTitle>
-                                                    Globální skóre viditelnosti
-                                                </CardTitle>
-                                                <MetricTooltip
-                                                    metric="Globální skóre"
-                                                    description="Průměrné skóre viditelnosti vaší značky napříč všemi testovanými kontexty (regiony × persony). Čím vyšší, tím lépe."
-                                                    example="Skóre 75 znamená že vaše značka je zmíněna v 75% případů s pozitivním kontextem."
-                                                />
-                                            </div>
-                                        </CardHeader>
-                                        <CardContent>
-                                            <div className="text-3xl font-bold text-blue-600">
-                                                {latestResult.globalScore &&
-                                                !isNaN(latestResult.globalScore)
-                                                    ? Math.round(
-                                                          latestResult.globalScore
-                                                      )
-                                                    : 0}
-                                            </div>
-                                            {trend && (
-                                                <div className="flex items-center mt-2 text-sm">
-                                                    {trend.direction ===
-                                                        "up" && (
-                                                        <TrendingUp className="h-4 w-4 text-green-600 mr-1" />
-                                                    )}
-                                                    {trend.direction ===
-                                                        "down" && (
-                                                        <TrendingDown className="h-4 w-4 text-red-600 mr-1" />
-                                                    )}
-                                                    {trend.direction ===
-                                                        "stable" && (
-                                                        <Minus className="h-4 w-4 text-gray-600 mr-1" />
-                                                    )}
-                                                    <span
-                                                        className={
-                                                            trend.direction ===
+                        {!loading &&
+                            aggregated &&
+                            latestResult &&
+                            !latestResult.noMentionsFound &&
+                            latestResult.globalScore > 0 && (
+                                <div className="space-y-6">
+                                    {/* Hlavní metriky */}
+                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                        <Card>
+                                            <CardHeader className="pb-2">
+                                                <div className="flex items-center gap-2">
+                                                    <CardTitle>
+                                                        Globální skóre
+                                                        viditelnosti
+                                                    </CardTitle>
+                                                    <MetricTooltip
+                                                        metric="Globální skóre"
+                                                        description="Průměrné skóre viditelnosti vaší značky napříč všemi testovanými kontexty (regiony × persony). Čím vyšší, tím lépe."
+                                                        example="Skóre 75 znamená že vaše značka je zmíněna v 75% případů s pozitivním kontextem."
+                                                    />
+                                                </div>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <div className="text-3xl font-bold text-blue-600">
+                                                    {latestResult.globalScore &&
+                                                    !isNaN(
+                                                        latestResult.globalScore
+                                                    )
+                                                        ? Math.round(
+                                                              latestResult.globalScore
+                                                          )
+                                                        : 0}
+                                                </div>
+                                                {trend && (
+                                                    <div className="flex items-center mt-2 text-sm">
+                                                        {trend.direction ===
+                                                            "up" && (
+                                                            <TrendingUp className="h-4 w-4 text-green-600 mr-1" />
+                                                        )}
+                                                        {trend.direction ===
+                                                            "down" && (
+                                                            <TrendingDown className="h-4 w-4 text-red-600 mr-1" />
+                                                        )}
+                                                        {trend.direction ===
+                                                            "stable" && (
+                                                            <Minus className="h-4 w-4 text-gray-600 mr-1" />
+                                                        )}
+                                                        <span
+                                                            className={
+                                                                trend.direction ===
+                                                                "up"
+                                                                    ? "text-green-600"
+                                                                    : trend.direction ===
+                                                                      "down"
+                                                                    ? "text-red-600"
+                                                                    : "text-gray-600"
+                                                            }
+                                                        >
+                                                            {trend.direction ===
                                                             "up"
-                                                                ? "text-green-600"
+                                                                ? "+"
                                                                 : trend.direction ===
                                                                   "down"
-                                                                ? "text-red-600"
-                                                                : "text-gray-600"
+                                                                ? "-"
+                                                                : ""}
+                                                            {trend.change} bodů
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                {latestResult.isDemo && (
+                                                    <Badge
+                                                        variant="outline"
+                                                        className="mt-2 bg-yellow-50 text-yellow-700 border-yellow-300"
+                                                    >
+                                                        DEMO DATA
+                                                    </Badge>
+                                                )}
+                                            </CardContent>
+                                        </Card>
+
+                                        {queries.length > 1 && aggregated && (
+                                            <>
+                                                <Card>
+                                                    <CardHeader className="pb-2">
+                                                        <CardTitle className="text-sm font-medium text-gray-600">
+                                                            Průměrné skóre
+                                                        </CardTitle>
+                                                    </CardHeader>
+                                                    <CardContent>
+                                                        <div className="text-3xl font-bold text-gray-900">
+                                                            {aggregated.avgScore &&
+                                                            !isNaN(
+                                                                aggregated.avgScore
+                                                            )
+                                                                ? Math.round(
+                                                                      aggregated.avgScore
+                                                                  )
+                                                                : 0}
+                                                        </div>
+                                                        <p className="text-xs text-gray-500 mt-1">
+                                                            Napříč{" "}
+                                                            {aggregated.count}{" "}
+                                                            dotazy
+                                                        </p>
+                                                    </CardContent>
+                                                </Card>
+
+                                                <Card>
+                                                    <CardHeader className="pb-2">
+                                                        <CardTitle className="text-sm font-medium text-gray-600">
+                                                            Nejlepší výsledek
+                                                        </CardTitle>
+                                                    </CardHeader>
+                                                    <CardContent>
+                                                        <div className="text-3xl font-bold text-green-600">
+                                                            {aggregated.maxScore &&
+                                                            !isNaN(
+                                                                aggregated.maxScore
+                                                            )
+                                                                ? Math.round(
+                                                                      aggregated.maxScore
+                                                                  )
+                                                                : 0}
+                                                        </div>
+                                                    </CardContent>
+                                                </Card>
+
+                                                <Card>
+                                                    <CardHeader className="pb-2">
+                                                        <CardTitle className="text-sm font-medium text-gray-600">
+                                                            Nejhorší výsledek
+                                                        </CardTitle>
+                                                    </CardHeader>
+                                                    <CardContent>
+                                                        <div className="text-3xl font-bold text-red-600">
+                                                            {aggregated.minScore &&
+                                                            !isNaN(
+                                                                aggregated.minScore
+                                                            )
+                                                                ? Math.round(
+                                                                      aggregated.minScore
+                                                                  )
+                                                                : 0}
+                                                        </div>
+                                                    </CardContent>
+                                                </Card>
+                                            </>
+                                        )}
+                                    </div>
+
+                                    {latestResult && (
+                                        <AdvancedVisualizations
+                                            data={{
+                                                brandName: brand,
+                                                competitors:
+                                                    latestResult.competitorMentions,
+                                                regionPerformance: (
+                                                    latestResult.regionPerformance ||
+                                                    []
+                                                )
+                                                    .filter((r) => r)
+                                                    .map((r) => ({
+                                                        region: r.region,
+                                                        score:
+                                                            r.score ||
+                                                            r.averageScore ||
+                                                            0,
+                                                    })),
+                                                personaPerformance: (
+                                                    latestResult.personaPerformance ||
+                                                    []
+                                                )
+                                                    .filter((p) => p)
+                                                    .map((p) => ({
+                                                        persona: p.persona,
+                                                        score:
+                                                            p.score ||
+                                                            p.averageScore ||
+                                                            0,
+                                                    })),
+                                                historicalData,
+                                            }}
+                                        />
+                                    )}
+
+                                    {latestResult?.usage && (
+                                        <Card>
+                                            <CardHeader>
+                                                <CardTitle className="text-base flex items-center gap-2">
+                                                    <DollarSign className="h-5 w-5" />
+                                                    Náklady na analýzu
+                                                </CardTitle>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                                    <div>
+                                                        <div className="text-sm text-gray-600">
+                                                            Input tokeny
+                                                        </div>
+                                                        <div className="text-lg font-semibold">
+                                                            {latestResult.usage.inputTokens.toLocaleString()}
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-sm text-gray-600">
+                                                            Output tokeny
+                                                        </div>
+                                                        <div className="text-lg font-semibold">
+                                                            {latestResult.usage.outputTokens.toLocaleString()}
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-sm text-gray-600">
+                                                            Model
+                                                        </div>
+                                                        <div className="text-sm font-medium">
+                                                            {
+                                                                latestResult
+                                                                    .usage.model
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-sm text-gray-600">
+                                                            Náklady
+                                                        </div>
+                                                        <div className="text-lg font-semibold text-green-600">
+                                                            $
+                                                            {latestResult.usage.cost.toFixed(
+                                                                4
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    )}
+
+                                    {/* Rozbor jednotlivých dotazů */}
+                                    {queries.length > 1 && (
+                                        <Card>
+                                            <CardHeader>
+                                                <CardTitle>
+                                                    Rozbor jednotlivých dotazů
+                                                </CardTitle>
+                                                <CardDescription>
+                                                    Detailní výsledky pro každý
+                                                    testovaný dotaz
+                                                </CardDescription>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <Accordion
+                                                    type="single"
+                                                    collapsible
+                                                    className="w-full"
+                                                    value={
+                                                        openQueryAccordionItem
+                                                    }
+                                                    onValueChange={
+                                                        setOpenQueryAccordionItem
+                                                    }
+                                                >
+                                                    {queryResults.map(
+                                                        ({ query, result }) => (
+                                                            <AccordionItem
+                                                                key={query}
+                                                                value={query}
+                                                            >
+                                                                <AccordionTrigger>
+                                                                    <div className="flex items-center justify-between w-full pr-4">
+                                                                        <span className="text-left font-medium">
+                                                                            {
+                                                                                query
+                                                                            }
+                                                                        </span>
+                                                                        <Badge
+                                                                            variant={
+                                                                                result.globalScore >=
+                                                                                70
+                                                                                    ? "default"
+                                                                                    : "secondary"
+                                                                            }
+                                                                        >
+                                                                            Skóre:{" "}
+                                                                            {Math.round(
+                                                                                result.globalScore
+                                                                            )}
+                                                                        </Badge>
+                                                                    </div>
+                                                                </AccordionTrigger>
+                                                                <AccordionContent>
+                                                                    <div className="space-y-4 pt-4">
+                                                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                                            <div>
+                                                                                <div className="text-sm font-medium text-gray-600">
+                                                                                    Celkové
+                                                                                    skóre
+                                                                                </div>
+                                                                                <div className="text-2xl font-bold text-blue-600">
+                                                                                    {Math.round(
+                                                                                        result.globalScore
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
+                                                                            <div>
+                                                                                <div className="text-sm font-medium text-gray-600">
+                                                                                    Pozitivní
+                                                                                    sentiment
+                                                                                </div>
+                                                                                <div className="text-2xl font-bold text-green-600">
+                                                                                    {result
+                                                                                        .sentimentBreakdown
+                                                                                        ?.positive ||
+                                                                                        0}
+
+                                                                                    %
+                                                                                </div>
+                                                                            </div>
+                                                                            <div>
+                                                                                <div className="text-sm font-medium text-gray-600">
+                                                                                    Konkurenční
+                                                                                    zmínky
+                                                                                </div>
+                                                                                <div className="text-2xl font-bold text-gray-900">
+                                                                                    {
+                                                                                        (
+                                                                                            result.competitorMentions ||
+                                                                                            []
+                                                                                        )
+                                                                                            .length
+                                                                                    }
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+
+                                                                        <div>
+                                                                            <h4 className="font-medium mb-2">
+                                                                                Top
+                                                                                3
+                                                                                konkurenti
+                                                                                v
+                                                                                této
+                                                                                odpovědi:
+                                                                            </h4>
+                                                                            <div className="space-y-2">
+                                                                                {(
+                                                                                    result.competitorMentions ||
+                                                                                    []
+                                                                                )
+                                                                                    .slice(
+                                                                                        0,
+                                                                                        3
+                                                                                    )
+                                                                                    .map(
+                                                                                        (
+                                                                                            competitor,
+                                                                                            index
+                                                                                        ) => (
+                                                                                            <div
+                                                                                                key={`${competitor.brand}-${index}`}
+                                                                                                className="flex items-center justify-between p-2 bg-gray-50 rounded"
+                                                                                            >
+                                                                                                <span className="font-medium">
+                                                                                                    {
+                                                                                                        competitor.brand
+                                                                                                    }
+                                                                                                </span>
+                                                                                                <div className="flex items-center gap-4 text-sm">
+                                                                                                    <span className="text-gray-600">
+                                                                                                        {
+                                                                                                            competitor.count
+                                                                                                        }{" "}
+                                                                                                        zmínek
+                                                                                                    </span>
+                                                                                                    <Badge variant="outline">
+                                                                                                        {
+                                                                                                            competitor.sentiment
+                                                                                                        }
+                                                                                                    </Badge>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        )
+                                                                                    )}
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </AccordionContent>
+                                                            </AccordionItem>
+                                                        )
+                                                    )}
+                                                </Accordion>
+                                            </CardContent>
+                                        </Card>
+                                    )}
+
+                                    {/* Trend v čase */}
+                                    <Card>
+                                        <CardHeader>
+                                            <CardTitle>
+                                                Trend viditelnosti v čase
+                                            </CardTitle>
+                                            <CardDescription>
+                                                Vývoj skóre za posledních 30 dní
+                                                (demo data)
+                                            </CardDescription>
+                                        </CardHeader>
+                                        <CardContent>
+                                            <ResponsiveContainer
+                                                width="100%"
+                                                height={300}
+                                            >
+                                                <LineChart
+                                                    data={historicalData}
+                                                >
+                                                    <CartesianGrid strokeDasharray="3 3" />
+                                                    <XAxis dataKey="date" />
+                                                    <YAxis domain={[0, 100]} />
+                                                    <Tooltip />
+                                                    <Legend />
+                                                    <Line
+                                                        type="monotone"
+                                                        dataKey="score"
+                                                        stroke="#3b82f6"
+                                                        strokeWidth={2}
+                                                        name="Skóre viditelnosti"
+                                                    />
+                                                </LineChart>
+                                            </ResponsiveContainer>
+                                        </CardContent>
+                                    </Card>
+
+                                    {/* Výkon po regionech a personách */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <Card>
+                                            <CardHeader>
+                                                <CardTitle className="flex items-center justify-between">
+                                                    <span>
+                                                        Výkon po regionech
+                                                    </span>
+                                                    <PromptDisplayModal
+                                                        title="Prompt pro regionální analýzu"
+                                                        systemPrompt={`You are answering from a [REGION] perspective, considering [REGION]-based companies and solutions popular in that market.\n\nRegions tested:\n- North America: US/Canada perspective\n- Europe: EU perspective with GDPR focus\n- Asia Pacific: Asia-Pacific markets\n- Latin America: LATAM markets`}
+                                                        userPrompt={`${
+                                                            queries[0] ||
+                                                            "User query"
+                                                        }`}
+                                                        context={{
+                                                            region: "various",
+                                                            persona: "mixed",
+                                                        }}
+                                                    />
+                                                </CardTitle>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <ResponsiveContainer
+                                                    width="100%"
+                                                    height={250}
+                                                >
+                                                    <BarChart
+                                                        data={
+                                                            latestResult.regionPerformance
                                                         }
                                                     >
-                                                        {trend.direction ===
-                                                        "up"
-                                                            ? "+"
-                                                            : trend.direction ===
-                                                              "down"
-                                                            ? "-"
-                                                            : ""}
-                                                        {trend.change} bodů
+                                                        <CartesianGrid strokeDasharray="3 3" />
+                                                        <XAxis dataKey="region" />
+                                                        <YAxis
+                                                            domain={[0, 100]}
+                                                        />
+                                                        <Tooltip />
+                                                        <Bar
+                                                            dataKey="score"
+                                                            fill="#3b82f6"
+                                                            name="Skóre"
+                                                        />
+                                                    </BarChart>
+                                                </ResponsiveContainer>
+                                            </CardContent>
+                                        </Card>
+
+                                        <Card>
+                                            <CardHeader>
+                                                <CardTitle className="flex items-center justify-between">
+                                                    <span>
+                                                        Výkon po personách
                                                     </span>
-                                                </div>
-                                            )}
-                                            {latestResult.isDemo && (
-                                                <Badge
-                                                    variant="outline"
-                                                    className="mt-2 bg-yellow-50 text-yellow-700 border-yellow-300"
+                                                    <PromptDisplayModal
+                                                        title="Prompt pro analýzu podle person"
+                                                        systemPrompt={`You are helping a [PERSONA] looking for solutions.\n\nPersonas tested:\n- B2B Decision Maker: Focus on ROI and scalability\n- B2C Consumer: Focus on ease of use and affordability\n- Developer: Focus on APIs and technical capabilities\n- Researcher: Focus on objective comparisons\n- Startup Founder: Focus on cost-effectiveness\n- Marketing Professional: Focus on campaign tools\n- IT Administrator: Focus on security and management\n- Student/Educator: Focus on learning resources`}
+                                                        userPrompt={`${
+                                                            queries[0] ||
+                                                            "User query"
+                                                        }`}
+                                                        context={{
+                                                            region: "mixed",
+                                                            persona: "various",
+                                                        }}
+                                                    />
+                                                </CardTitle>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <ResponsiveContainer
+                                                    width="100%"
+                                                    height={250}
                                                 >
-                                                    DEMO DATA
-                                                </Badge>
+                                                    <BarChart
+                                                        data={
+                                                            latestResult.personaPerformance
+                                                        }
+                                                    >
+                                                        <CartesianGrid strokeDasharray="3 3" />
+                                                        <XAxis
+                                                            dataKey="persona"
+                                                            angle={-45}
+                                                            textAnchor="end"
+                                                            height={100}
+                                                        />
+                                                        <YAxis
+                                                            domain={[0, 100]}
+                                                        />
+                                                        <Tooltip />
+                                                        <Bar
+                                                            dataKey="score"
+                                                            fill="#10b981"
+                                                            name="Skóre"
+                                                        />
+                                                    </BarChart>
+                                                </ResponsiveContainer>
+                                            </CardContent>
+                                        </Card>
+                                    </div>
+
+                                    {/* Analýza kontextu zmínek */}
+                                    <Card>
+                                        <CardHeader>
+                                            <CardTitle className="flex items-center justify-between">
+                                                <span>
+                                                    V jakém kontextu je váš
+                                                    brand zmiňován?
+                                                </span>
+                                                <PromptDisplayModal
+                                                    title="Prompt pro kontextovou analýzu"
+                                                    systemPrompt={`You are an AI assistant that naturally answers questions while considering various products and solutions in your responses.\n\nNote: The analysis then examines the full AI response to extract how and in what context the brand "${brand}" was mentioned.`}
+                                                    userPrompt={`${
+                                                        queries[0] ||
+                                                        "User query"
+                                                    }`}
+                                                />
+                                            </CardTitle>
+                                            <CardDescription>
+                                                Analýza toho, jak AI popisuje
+                                                váš brand v odpovědích
+                                            </CardDescription>
+                                        </CardHeader>
+                                        <CardContent>
+                                            <div className="space-y-4">
+                                                {(
+                                                    latestResult.contextAnalysis ||
+                                                    []
+                                                ).map((ctx, idx) => (
+                                                    <div
+                                                        key={idx}
+                                                        className="border rounded-lg p-4"
+                                                    >
+                                                        <div className="flex items-start justify-between">
+                                                            <div className="flex-1">
+                                                                <p className="text-gray-900">
+                                                                    {
+                                                                        ctx.context
+                                                                    }
+                                                                </p>
+                                                                <div className="flex items-center gap-3 mt-2">
+                                                                    <span className="text-sm text-gray-600">
+                                                                        {
+                                                                            ctx.mentions
+                                                                        }{" "}
+                                                                        {ctx.mentions ===
+                                                                        1
+                                                                            ? "zmínka"
+                                                                            : ctx.mentions <
+                                                                              5
+                                                                            ? "zmínky"
+                                                                            : "zmínek"}
+                                                                    </span>
+                                                                    <Badge
+                                                                        variant={
+                                                                            ctx.sentiment ===
+                                                                            "positive"
+                                                                                ? "default"
+                                                                                : ctx.sentiment ===
+                                                                                  "negative"
+                                                                                ? "destructive"
+                                                                                : "secondary"
+                                                                        }
+                                                                    >
+                                                                        {ctx.sentiment ===
+                                                                        "positive"
+                                                                            ? "Pozitivní"
+                                                                            : ctx.sentiment ===
+                                                                              "negative"
+                                                                            ? "Negativní"
+                                                                            : "Neutrální"}
+                                                                    </Badge>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+
+                                    {/* Sentiment breakdown */}
+                                    <Card>
+                                        <CardHeader>
+                                            <CardTitle className="flex items-center justify-between">
+                                                <span>Sentiment analýza</span>
+                                                <PromptDisplayModal
+                                                    title="Prompt pro sentiment analýzu"
+                                                    systemPrompt={`You analyze sentiment of brand mentions in AI responses. Classify each mention as positive, negative, or neutral based on the surrounding context and tone.\n\nClassify each mention based on context, tone, and positioning in the answer.`}
+                                                    userPrompt={`Analyze sentiment for brand: ${brand}\n\nIn AI responses to: ${
+                                                        queries[0] ||
+                                                        "User query"
+                                                    }`}
+                                                />
+                                            </CardTitle>
+                                        </CardHeader>
+                                        <CardContent>
+                                            {latestResult.sentimentBreakdown ? (
+                                                <div className="grid grid-cols-3 gap-4">
+                                                    <div className="text-center p-4 bg-green-50 rounded-lg">
+                                                        <div className="text-3xl font-bold text-green-600">
+                                                            {
+                                                                latestResult
+                                                                    .sentimentBreakdown
+                                                                    .positive
+                                                            }
+                                                            %
+                                                        </div>
+                                                        <div className="text-sm text-green-800 mt-1">
+                                                            Pozitivní
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-center p-4 bg-gray-50 rounded-lg">
+                                                        <div className="text-3xl font-bold text-gray-600">
+                                                            {
+                                                                latestResult
+                                                                    .sentimentBreakdown
+                                                                    .neutral
+                                                            }
+                                                            %
+                                                        </div>
+                                                        <div className="text-sm text-gray-800 mt-1">
+                                                            Neutrální
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-center p-4 bg-red-50 rounded-lg">
+                                                        <div className="text-3xl font-bold text-red-600">
+                                                            {
+                                                                latestResult
+                                                                    .sentimentBreakdown
+                                                                    .negative
+                                                            }
+                                                            %
+                                                        </div>
+                                                        <div className="text-sm text-red-800 mt-1">
+                                                            Negativní
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <p className="text-gray-500 text-center">
+                                                    Data nejsou k dispozici
+                                                </p>
                                             )}
                                         </CardContent>
                                     </Card>
 
-                                    {queries.length > 1 && aggregated && (
-                                        <>
-                                            <Card>
-                                                <CardHeader className="pb-2">
-                                                    <CardTitle className="text-sm font-medium text-gray-600">
-                                                        Průměrné skóre
-                                                    </CardTitle>
-                                                </CardHeader>
-                                                <CardContent>
-                                                    <div className="text-3xl font-bold text-gray-900">
-                                                        {aggregated.avgScore &&
-                                                        !isNaN(
-                                                            aggregated.avgScore
-                                                        )
-                                                            ? Math.round(
-                                                                  aggregated.avgScore
-                                                              )
-                                                            : 0}
-                                                    </div>
-                                                    <p className="text-xs text-gray-500 mt-1">
-                                                        Napříč{" "}
-                                                        {aggregated.count}{" "}
-                                                        dotazy
-                                                    </p>
-                                                </CardContent>
-                                            </Card>
+                                    {/* Konkurenční zmínky */}
+                                    {competitorRanking.length > 0 && (
+                                        <Card className="mb-6">
+                                            <CardHeader>
+                                                <CardTitle className="flex items-center justify-between">
+                                                    <span>
+                                                        Žebříček brandů v AI
+                                                        odpovědích
+                                                    </span>
+                                                    <PromptDisplayModal
+                                                        title="Prompt pro detekci konkurence"
+                                                        systemPrompt={`You analyze AI responses to identify all mentioned brands/products and calculate their visibility metrics.`}
+                                                        userPrompt={`Query: ${
+                                                            queries[0] ||
+                                                            "User query"
+                                                        }
 
-                                            <Card>
-                                                <CardHeader className="pb-2">
-                                                    <CardTitle className="text-sm font-medium text-gray-600">
-                                                        Nejlepší výsledek
-                                                    </CardTitle>
-                                                </CardHeader>
-                                                <CardContent>
-                                                    <div className="text-3xl font-bold text-green-600">
-                                                        {aggregated.maxScore &&
-                                                        !isNaN(
-                                                            aggregated.maxScore
-                                                        )
-                                                            ? Math.round(
-                                                                  aggregated.maxScore
-                                                              )
-                                                            : 0}
-                                                    </div>
-                                                </CardContent>
-                                            </Card>
+Task: Identify ALL brands/products mentioned in the AI response, count their frequency, calculate average text position, and analyze sentiment for each mention.`}
+                                                    />
+                                                </CardTitle>
+                                                <CardDescription>
+                                                    Srovnání viditelnosti vašeho
+                                                    brandu s konkurencí včetně
+                                                    změn oproti minulému měsíci
+                                                </CardDescription>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <div className="space-y-2">
+                                                    {competitorRanking.map(
+                                                        (comp, index) => (
+                                                            <div
+                                                                key={`ranking-${comp.brand}-${index}`}
+                                                                className={`flex items-center justify-between p-4 rounded-lg border ${
+                                                                    comp.brand.toLowerCase() ===
+                                                                    brand.toLowerCase()
+                                                                        ? "bg-blue-50 border-blue-200"
+                                                                        : "bg-white"
+                                                                }`}
+                                                            >
+                                                                <div className="flex items-center gap-4 flex-1">
+                                                                    <div className="w-12 text-center">
+                                                                        <div className="text-2xl font-bold text-gray-700">
+                                                                            #
+                                                                            {
+                                                                                comp.rank
+                                                                            }
+                                                                        </div>
+                                                                    </div>
 
-                                            <Card>
-                                                <CardHeader className="pb-2">
-                                                    <CardTitle className="text-sm font-medium text-gray-600">
-                                                        Nejhorší výsledek
-                                                    </CardTitle>
-                                                </CardHeader>
-                                                <CardContent>
-                                                    <div className="text-3xl font-bold text-red-600">
-                                                        {aggregated.minScore &&
-                                                        !isNaN(
-                                                            aggregated.minScore
+                                                                    <div className="flex-1">
+                                                                        <div className="font-semibold text-gray-900 mb-1">
+                                                                            {
+                                                                                comp.brand
+                                                                            }
+                                                                            {comp.brand.toLowerCase() ===
+                                                                                brand.toLowerCase() && (
+                                                                                <Badge
+                                                                                    variant="default"
+                                                                                    className="ml-2"
+                                                                                >
+                                                                                    Váš
+                                                                                    brand
+                                                                                </Badge>
+                                                                            )}
+                                                                        </div>
+                                                                        <div className="text-sm text-gray-600">
+                                                                            {
+                                                                                comp.count
+                                                                            }{" "}
+                                                                            zmínek
+                                                                            ·
+                                                                            Průměrná
+                                                                            pozice:{" "}
+                                                                            {
+                                                                                comp.avgPosition
+                                                                            }{" "}
+                                                                            ·
+                                                                            Sentiment:{" "}
+                                                                            {
+                                                                                comp.sentiment
+                                                                            }
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="text-right">
+                                                                        <div className="text-sm font-medium text-gray-700">
+                                                                            {Math.round(
+                                                                                (comp.count /
+                                                                                    competitorRanking.reduce(
+                                                                                        (
+                                                                                            sum,
+                                                                                            c
+                                                                                        ) =>
+                                                                                            sum +
+                                                                                            c.count,
+                                                                                        0
+                                                                                    )) *
+                                                                                    100
+                                                                            )}
+                                                                            %
+                                                                        </div>
+                                                                        <div className="text-xs text-gray-500">
+                                                                            podíl
+                                                                            zmínek
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
                                                         )
-                                                            ? Math.round(
-                                                                  aggregated.minScore
-                                                              )
-                                                            : 0}
-                                                    </div>
-                                                </CardContent>
-                                            </Card>
-                                        </>
+                                                    )}
+                                                </div>
+
+                                                <div className="mt-4 p-3 bg-gray-50 rounded-lg text-xs text-gray-600">
+                                                    <strong>Vysvětlení:</strong>{" "}
+                                                    Žebříček je sestaven podle
+                                                    počtu zmínek a průměrné
+                                                    pozice v odpovědích AI.
+                                                    Šipky ukazují změnu pozice
+                                                    oproti minulému měsíci.
+                                                </div>
+                                            </CardContent>
+                                        </Card>
                                     )}
-                                </div>
 
-                                {latestResult && (
-                                    <AdvancedVisualizations
-                                        data={{
-                                            brandName: brand,
-                                            competitors:
-                                                latestResult.competitorMentions,
-                                            regionPerformance: (
+                                    {competitorIntelligenceData.length > 0 && (
+                                        <CompetitiveIntelligence
+                                            myBrand={brand}
+                                            competitors={
+                                                competitorIntelligenceData
+                                            }
+                                            totalMentions={totalMentions}
+                                        />
+                                    )}
+
+                                    {/* Analýza odkazů */}
+                                    {latestResult?.linksByBrand &&
+                                        Object.keys(latestResult.linksByBrand)
+                                            .length > 0 && (
+                                            <Card className="p-6">
+                                                <div className="flex items-center justify-between mb-4">
+                                                    <h3 className="text-xl font-semibold">
+                                                        Analýza odkazů v AI
+                                                        odpovědích
+                                                    </h3>
+                                                    <PromptDisplayModal
+                                                        title="Prompt pro analýzu odkazů"
+                                                        systemPrompt={`You are an AI assistant that naturally includes relevant URLs and links in your responses when appropriate.\n\nNote: After generating the response, all URLs are extracted and mapped to their corresponding brands for analysis.`}
+                                                        userPrompt={`${
+                                                            queries[0] ||
+                                                            "User query"
+                                                        }`}
+                                                    />
+                                                </div>
+                                                <p className="text-sm text-gray-600 mb-6">
+                                                    Nejčastější URL adresy, na
+                                                    které AI odpovědi odkazují,
+                                                    rozdělené podle brandů.
+                                                </p>
+
+                                                <div className="space-y-6">
+                                                    {Object.entries(
+                                                        latestResult.linksByBrand
+                                                    ).map(
+                                                        ([
+                                                            brandName,
+                                                            links,
+                                                        ]) => {
+                                                            const isMyBrand =
+                                                                brandName.toLowerCase() ===
+                                                                brand.toLowerCase();
+                                                            const totalLinks = (
+                                                                (links ||
+                                                                    []) as Array<{
+                                                                    count: number;
+                                                                } | null>
+                                                            ).reduce(
+                                                                (sum, link) =>
+                                                                    sum +
+                                                                    (link?.count ||
+                                                                        0),
+                                                                0
+                                                            );
+
+                                                            return (
+                                                                <div
+                                                                    key={
+                                                                        brandName
+                                                                    }
+                                                                    className={`p-4 rounded-lg border-2 ${
+                                                                        isMyBrand
+                                                                            ? "border-blue-500 bg-blue-50"
+                                                                            : "border-gray-200 bg-gray-50"
+                                                                    }`}
+                                                                >
+                                                                    <div className="flex items-center justify-between mb-3">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <h4 className="font-semibold text-lg">
+                                                                                {
+                                                                                    brandName
+                                                                                }
+                                                                            </h4>
+                                                                            {isMyBrand && (
+                                                                                <span className="text-xs bg-blue-500 text-white px-2 py-1 rounded">
+                                                                                    Váš
+                                                                                    brand
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                        <div className="text-sm text-gray-600">
+                                                                            Celkem
+                                                                            zmínek:{" "}
+                                                                            <span className="font-semibold">
+                                                                                {
+                                                                                    totalLinks
+                                                                                }
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="space-y-2">
+                                                                        {(
+                                                                            links as any[]
+                                                                        )
+                                                                            .slice(
+                                                                                0,
+                                                                                5
+                                                                            )
+                                                                            .map(
+                                                                                (
+                                                                                    link,
+                                                                                    idx
+                                                                                ) => (
+                                                                                    <div
+                                                                                        key={
+                                                                                            idx
+                                                                                        }
+                                                                                        className="flex items-center justify-between p-3 bg-white rounded border"
+                                                                                    >
+                                                                                        <div className="flex-1 min-w-0">
+                                                                                            <a
+                                                                                                href={
+                                                                                                    link.url
+                                                                                                }
+                                                                                                target="_blank"
+                                                                                                rel="noopener noreferrer"
+                                                                                                className="text-blue-600 hover:underline text-sm truncate block"
+                                                                                            >
+                                                                                                {
+                                                                                                    link.url
+                                                                                                }
+                                                                                            </a>
+                                                                                            {link.title &&
+                                                                                                link.title !=
+                                                                                                    link.url && (
+                                                                                                    <p className="text-xs text-gray-500 mt-1">
+                                                                                                        {
+                                                                                                            link.title
+                                                                                                        }
+                                                                                                    </p>
+                                                                                                )}
+                                                                                        </div>
+                                                                                        <div className="ml-4 flex items-center gap-2">
+                                                                                            <span className="text-xs text-gray-500">
+                                                                                                {
+                                                                                                    link.count
+                                                                                                }
+
+                                                                                                ×
+                                                                                                zmíněno
+                                                                                            </span>
+                                                                                            <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                                                                                <div
+                                                                                                    className="h-full bg-blue-500"
+                                                                                                    style={{
+                                                                                                        width: `${
+                                                                                                            (link.count /
+                                                                                                                totalLinks) *
+                                                                                                            100
+                                                                                                        }%`,
+                                                                                                    }}
+                                                                                                />
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                )
+                                                                            )}
+                                                                    </div>
+
+                                                                    {(
+                                                                        links as any[]
+                                                                    ).length >
+                                                                        5 && (
+                                                                        <p className="text-xs text-gray-500 mt-2 text-center">
+                                                                            ...
+                                                                            a
+                                                                            dalších{" "}
+                                                                            {(
+                                                                                links as any[]
+                                                                            )
+                                                                                .length -
+                                                                                5}{" "}
+                                                                            odkazů
+                                                                        </p>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        }
+                                                    )}
+                                                </div>
+
+                                                <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+                                                    <h4 className="font-semibold mb-2">
+                                                        Souhrn
+                                                    </h4>
+                                                    <div className="grid grid-cols-2 gap-4 text-sm">
+                                                        <div>
+                                                            <span className="text-gray-600">
+                                                                Vaše odkazy:
+                                                            </span>
+                                                            <span className="ml-2 font-semibold">
+                                                                {(
+                                                                    (latestResult
+                                                                        .linksByBrand[
+                                                                        brand
+                                                                    ] as any[]) ||
+                                                                    []
+                                                                ).reduce(
+                                                                    (
+                                                                        sum,
+                                                                        link
+                                                                    ) =>
+                                                                        sum +
+                                                                        link.count,
+                                                                    0
+                                                                )}
+                                                            </span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-gray-600">
+                                                                Konkurenční
+                                                                odkazy:
+                                                            </span>
+                                                            <span className="ml-2 font-semibold">
+                                                                {Object.entries(
+                                                                    latestResult.linksByBrand
+                                                                )
+                                                                    .filter(
+                                                                        ([b]) =>
+                                                                            b.toLowerCase() !==
+                                                                            brand.toLowerCase()
+                                                                    )
+                                                                    .reduce(
+                                                                        (
+                                                                            sum,
+                                                                            [
+                                                                                ,
+                                                                                links,
+                                                                            ]
+                                                                        ) =>
+                                                                            sum +
+                                                                            (
+                                                                                links as any[]
+                                                                            ).reduce(
+                                                                                (
+                                                                                    s,
+                                                                                    l
+                                                                                ) =>
+                                                                                    s +
+                                                                                    l.count,
+                                                                                0
+                                                                            ),
+                                                                        0
+                                                                    )}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </Card>
+                                        )}
+
+                                    {/* Doporučení */}
+                                    <Card>
+                                        <CardHeader>
+                                            <CardTitle>
+                                                Strategická doporučení
+                                            </CardTitle>
+                                        </CardHeader>
+                                        <CardContent>
+                                            {latestResult.recommendations &&
+                                            latestResult.recommendations
+                                                .length > 0 ? (
+                                                <ul className="list-disc list-inside space-y-1 ml-4">
+                                                    {latestResult.recommendations.map(
+                                                        (rec, idx) => (
+                                                            <li key={idx}>
+                                                                {rec}
+                                                            </li>
+                                                        )
+                                                    )}
+                                                </ul>
+                                            ) : (
+                                                <p className="text-gray-500 text-center">
+                                                    Doporučení nejsou k
+                                                    dispozici
+                                                </p>
+                                            )}
+                                        </CardContent>
+                                    </Card>
+
+                                    {latestResult?.deepContextAnalysis && (
+                                        <DeepContextAnalysis
+                                            brandName={brand}
+                                            mentions={
+                                                latestResult.deepContextAnalysis.categories.filter(
+                                                    (c) => c
+                                                ) as any
+                                            }
+                                            quotes={
+                                                latestResult.deepContextAnalysis
+                                                    .quotes
+                                            }
+                                        />
+                                    )}
+
+                                    {/* CHANGE: Added ActionItems component */}
+                                    <ActionItems
+                                        brandScore={
+                                            latestResult.globalScore || 0
+                                        }
+                                        competitorAverage={
+                                            latestResult.competitorMentions
+                                                ?.length > 0
+                                                ? latestResult.competitorMentions.reduce(
+                                                      (sum: number, c: any) =>
+                                                          sum + (c.score || 0),
+                                                      0
+                                                  ) /
+                                                  latestResult
+                                                      .competitorMentions.length
+                                                : 0
+                                        }
+                                        regionPerformance={
+                                            (
                                                 latestResult.regionPerformance ||
                                                 []
                                             )
@@ -1025,8 +2072,13 @@ export function TrendTracker({
                                                         r.score ||
                                                         r.averageScore ||
                                                         0,
-                                                })),
-                                            personaPerformance: (
+                                                })) as Array<{
+                                                region: string;
+                                                score: number;
+                                            }>
+                                        }
+                                        personaPerformance={
+                                            (
                                                 latestResult.personaPerformance ||
                                                 []
                                             )
@@ -1037,927 +2089,20 @@ export function TrendTracker({
                                                         p.score ||
                                                         p.averageScore ||
                                                         0,
-                                                })),
-                                            historicalData,
-                                        }}
+                                                })) as Array<{
+                                                persona: string;
+                                                score: number;
+                                            }>
+                                        }
                                     />
-                                )}
 
-                                {latestResult?.usage && (
-                                    <Card>
-                                        <CardHeader>
-                                            <CardTitle className="text-base flex items-center gap-2">
-                                                <DollarSign className="h-5 w-5" />
-                                                Náklady na analýzu
-                                            </CardTitle>
-                                        </CardHeader>
-                                        <CardContent>
-                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                                <div>
-                                                    <div className="text-sm text-gray-600">
-                                                        Input tokeny
-                                                    </div>
-                                                    <div className="text-lg font-semibold">
-                                                        {latestResult.usage.inputTokens.toLocaleString()}
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <div className="text-sm text-gray-600">
-                                                        Output tokeny
-                                                    </div>
-                                                    <div className="text-lg font-semibold">
-                                                        {latestResult.usage.outputTokens.toLocaleString()}
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <div className="text-sm text-gray-600">
-                                                        Model
-                                                    </div>
-                                                    <div className="text-sm font-medium">
-                                                        {
-                                                            latestResult.usage
-                                                                .model
-                                                        }
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <div className="text-sm text-gray-600">
-                                                        Náklady
-                                                    </div>
-                                                    <div className="text-lg font-semibold text-green-600">
-                                                        $
-                                                        {latestResult.usage.cost.toFixed(
-                                                            4
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </CardContent>
-                                    </Card>
-                                )}
-
-                                {/* Rozbor jednotlivých dotazů */}
-                                {queries.length > 1 && (
-                                    <Card>
-                                        <CardHeader>
-                                            <CardTitle>
-                                                Rozbor jednotlivých dotazů
-                                            </CardTitle>
-                                            <CardDescription>
-                                                Detailní výsledky pro každý
-                                                testovaný dotaz
-                                            </CardDescription>
-                                        </CardHeader>
-                                        <CardContent>
-                                            <Accordion
-                                                type="single"
-                                                collapsible
-                                                className="w-full"
-                                            >
-                                                {queryResults.map(
-                                                    ({ query, result }) => (
-                                                        <AccordionItem
-                                                            key={query}
-                                                            value={query}
-                                                        >
-                                                            <AccordionTrigger>
-                                                                <div className="flex items-center justify-between w-full pr-4">
-                                                                    <span className="text-left font-medium">
-                                                                        {query}
-                                                                    </span>
-                                                                    <Badge
-                                                                        variant={
-                                                                            result.globalScore >=
-                                                                            70
-                                                                                ? "default"
-                                                                                : "secondary"
-                                                                        }
-                                                                    >
-                                                                        Skóre:{" "}
-                                                                        {Math.round(
-                                                                            result.globalScore
-                                                                        )}
-                                                                    </Badge>
-                                                                </div>
-                                                            </AccordionTrigger>
-                                                            <AccordionContent>
-                                                                <div className="space-y-4 pt-4">
-                                                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                                                        <div>
-                                                                            <div className="text-sm font-medium text-gray-600">
-                                                                                Celkové
-                                                                                skóre
-                                                                            </div>
-                                                                            <div className="text-2xl font-bold text-blue-600">
-                                                                                {Math.round(
-                                                                                    result.globalScore
-                                                                                )}
-                                                                            </div>
-                                                                        </div>
-                                                                        <div>
-                                                                            <div className="text-sm font-medium text-gray-600">
-                                                                                Pozitivní
-                                                                                sentiment
-                                                                            </div>
-                                                                            <div className="text-2xl font-bold text-green-600">
-                                                                                {result
-                                                                                    .sentimentBreakdown
-                                                                                    ?.positive ||
-                                                                                    0}
-
-                                                                                %
-                                                                            </div>
-                                                                        </div>
-                                                                        <div>
-                                                                            <div className="text-sm font-medium text-gray-600">
-                                                                                Konkurenční
-                                                                                zmínky
-                                                                            </div>
-                                                                            <div className="text-2xl font-bold text-gray-900">
-                                                                                {
-                                                                                    (
-                                                                                        result.competitorMentions ||
-                                                                                        []
-                                                                                    )
-                                                                                        .length
-                                                                                }
-                                                                            </div>
-                                                                        </div>
-                                                                    </div>
-
-                                                                    <div>
-                                                                        <h4 className="font-medium mb-2">
-                                                                            Top
-                                                                            3
-                                                                            konkurenti
-                                                                            v
-                                                                            této
-                                                                            odpovědi:
-                                                                        </h4>
-                                                                        <div className="space-y-2">
-                                                                            {(
-                                                                                result.competitorMentions ||
-                                                                                []
-                                                                            )
-                                                                                .slice(
-                                                                                    0,
-                                                                                    3
-                                                                                )
-                                                                                .map(
-                                                                                    (
-                                                                                        competitor,
-                                                                                        index
-                                                                                    ) => (
-                                                                                        <div
-                                                                                            key={`${competitor.brand}-${index}`}
-                                                                                            className="flex items-center justify-between p-2 bg-gray-50 rounded"
-                                                                                        >
-                                                                                            <span className="font-medium">
-                                                                                                {
-                                                                                                    competitor.brand
-                                                                                                }
-                                                                                            </span>
-                                                                                            <div className="flex items-center gap-4 text-sm">
-                                                                                                <span className="text-gray-600">
-                                                                                                    {
-                                                                                                        competitor.count
-                                                                                                    }{" "}
-                                                                                                    zmínek
-                                                                                                </span>
-                                                                                                <Badge variant="outline">
-                                                                                                    {
-                                                                                                        competitor.sentiment
-                                                                                                    }
-                                                                                                </Badge>
-                                                                                            </div>
-                                                                                        </div>
-                                                                                    )
-                                                                                )}
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            </AccordionContent>
-                                                        </AccordionItem>
-                                                    )
-                                                )}
-                                            </Accordion>
-                                        </CardContent>
-                                    </Card>
-                                )}
-
-                                {/* Trend v čase */}
-                                <Card>
-                                    <CardHeader>
-                                        <CardTitle>
-                                            Trend viditelnosti v čase
-                                        </CardTitle>
-                                        <CardDescription>
-                                            Vývoj skóre za posledních 30 dní
-                                            (demo data)
-                                        </CardDescription>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <ResponsiveContainer
-                                            width="100%"
-                                            height={300}
-                                        >
-                                            <LineChart data={historicalData}>
-                                                <CartesianGrid strokeDasharray="3 3" />
-                                                <XAxis dataKey="date" />
-                                                <YAxis domain={[0, 100]} />
-                                                <Tooltip />
-                                                <Legend />
-                                                <Line
-                                                    type="monotone"
-                                                    dataKey="score"
-                                                    stroke="#3b82f6"
-                                                    strokeWidth={2}
-                                                    name="Skóre viditelnosti"
-                                                />
-                                            </LineChart>
-                                        </ResponsiveContainer>
-                                    </CardContent>
-                                </Card>
-
-                                {/* Výkon po regionech a personách */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <Card>
-                                        <CardHeader>
-                                            <CardTitle className="flex items-center justify-between">
-                                                <span>Výkon po regionech</span>
-                                                <PromptDisplayModal
-                                                    title="Prompt pro regionální analýzu"
-                                                    systemPrompt={`You are answering from a [REGION] perspective, considering [REGION]-based companies and solutions popular in that market.\n\nRegions tested:\n- North America: US/Canada perspective\n- Europe: EU perspective with GDPR focus\n- Asia Pacific: Asia-Pacific markets\n- Latin America: LATAM markets`}
-                                                    userPrompt={`${
-                                                        queries[0] ||
-                                                        "User query"
-                                                    }`}
-                                                    context={{
-                                                        region: "various",
-                                                        persona: "mixed",
-                                                    }}
-                                                />
-                                            </CardTitle>
-                                        </CardHeader>
-                                        <CardContent>
-                                            <ResponsiveContainer
-                                                width="100%"
-                                                height={250}
-                                            >
-                                                <BarChart
-                                                    data={
-                                                        latestResult.regionPerformance
-                                                    }
-                                                >
-                                                    <CartesianGrid strokeDasharray="3 3" />
-                                                    <XAxis dataKey="region" />
-                                                    <YAxis domain={[0, 100]} />
-                                                    <Tooltip />
-                                                    <Bar
-                                                        dataKey="score"
-                                                        fill="#3b82f6"
-                                                        name="Skóre"
-                                                    />
-                                                </BarChart>
-                                            </ResponsiveContainer>
-                                        </CardContent>
-                                    </Card>
-
-                                    <Card>
-                                        <CardHeader>
-                                            <CardTitle className="flex items-center justify-between">
-                                                <span>Výkon po personách</span>
-                                                <PromptDisplayModal
-                                                    title="Prompt pro analýzu podle person"
-                                                    systemPrompt={`You are helping a [PERSONA] looking for solutions.\n\nPersonas tested:\n- B2B Decision Maker: Focus on ROI and scalability\n- B2C Consumer: Focus on ease of use and affordability\n- Developer: Focus on APIs and technical capabilities\n- Researcher: Focus on objective comparisons\n- Startup Founder: Focus on cost-effectiveness\n- Marketing Professional: Focus on campaign tools\n- IT Administrator: Focus on security and management\n- Student/Educator: Focus on learning resources`}
-                                                    userPrompt={`${
-                                                        queries[0] ||
-                                                        "User query"
-                                                    }`}
-                                                    context={{
-                                                        region: "mixed",
-                                                        persona: "various",
-                                                    }}
-                                                />
-                                            </CardTitle>
-                                        </CardHeader>
-                                        <CardContent>
-                                            <ResponsiveContainer
-                                                width="100%"
-                                                height={250}
-                                            >
-                                                <BarChart
-                                                    data={
-                                                        latestResult.personaPerformance
-                                                    }
-                                                >
-                                                    <CartesianGrid strokeDasharray="3 3" />
-                                                    <XAxis
-                                                        dataKey="persona"
-                                                        angle={-45}
-                                                        textAnchor="end"
-                                                        height={100}
-                                                    />
-                                                    <YAxis domain={[0, 100]} />
-                                                    <Tooltip />
-                                                    <Bar
-                                                        dataKey="score"
-                                                        fill="#10b981"
-                                                        name="Skóre"
-                                                    />
-                                                </BarChart>
-                                            </ResponsiveContainer>
-                                        </CardContent>
-                                    </Card>
-                                </div>
-
-                                {/* Analýza kontextu zmínek */}
-                                <Card>
-                                    <CardHeader>
-                                        <CardTitle className="flex items-center justify-between">
-                                            <span>
-                                                V jakém kontextu je váš brand
-                                                zmiňován?
-                                            </span>
-                                            <PromptDisplayModal
-                                                title="Prompt pro kontextovou analýzu"
-                                                systemPrompt={`You are an AI assistant that naturally answers questions while considering various products and solutions in your responses.\n\nNote: The analysis then examines the full AI response to extract how and in what context the brand "${brand}" was mentioned.`}
-                                                userPrompt={`${
-                                                    queries[0] || "User query"
-                                                }`}
-                                            />
-                                        </CardTitle>
-                                        <CardDescription>
-                                            Analýza toho, jak AI popisuje váš
-                                            brand v odpovědích
-                                        </CardDescription>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <div className="space-y-4">
-                                            {(
-                                                latestResult.contextAnalysis ||
-                                                []
-                                            ).map((ctx, idx) => (
-                                                <div
-                                                    key={idx}
-                                                    className="border rounded-lg p-4"
-                                                >
-                                                    <div className="flex items-start justify-between">
-                                                        <div className="flex-1">
-                                                            <p className="text-gray-900">
-                                                                {ctx.context}
-                                                            </p>
-                                                            <div className="flex items-center gap-3 mt-2">
-                                                                <span className="text-sm text-gray-600">
-                                                                    {
-                                                                        ctx.mentions
-                                                                    }{" "}
-                                                                    {ctx.mentions ===
-                                                                    1
-                                                                        ? "zmínka"
-                                                                        : ctx.mentions <
-                                                                          5
-                                                                        ? "zmínky"
-                                                                        : "zmínek"}
-                                                                </span>
-                                                                <Badge
-                                                                    variant={
-                                                                        ctx.sentiment ===
-                                                                        "positive"
-                                                                            ? "default"
-                                                                            : ctx.sentiment ===
-                                                                              "negative"
-                                                                            ? "destructive"
-                                                                            : "secondary"
-                                                                    }
-                                                                >
-                                                                    {ctx.sentiment ===
-                                                                    "positive"
-                                                                        ? "Pozitivní"
-                                                                        : ctx.sentiment ===
-                                                                          "negative"
-                                                                        ? "Negativní"
-                                                                        : "Neutrální"}
-                                                                </Badge>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </CardContent>
-                                </Card>
-
-                                {/* Sentiment breakdown */}
-                                <Card>
-                                    <CardHeader>
-                                        <CardTitle className="flex items-center justify-between">
-                                            <span>Sentiment analýza</span>
-                                            <PromptDisplayModal
-                                                title="Prompt pro sentiment analýzu"
-                                                systemPrompt={`You analyze sentiment of brand mentions in AI responses. Classify each mention as positive, negative, or neutral based on the surrounding context and tone.\n\nClassify each mention based on context, tone, and positioning in the answer.`}
-                                                userPrompt={`Analyze sentiment for brand: ${brand}\n\nIn AI responses to: ${
-                                                    queries[0] || "User query"
-                                                }`}
-                                            />
-                                        </CardTitle>
-                                    </CardHeader>
-                                    <CardContent>
-                                        {latestResult.sentimentBreakdown ? (
-                                            <div className="grid grid-cols-3 gap-4">
-                                                <div className="text-center p-4 bg-green-50 rounded-lg">
-                                                    <div className="text-3xl font-bold text-green-600">
-                                                        {
-                                                            latestResult
-                                                                .sentimentBreakdown
-                                                                .positive
-                                                        }
-                                                        %
-                                                    </div>
-                                                    <div className="text-sm text-green-800 mt-1">
-                                                        Pozitivní
-                                                    </div>
-                                                </div>
-                                                <div className="text-center p-4 bg-gray-50 rounded-lg">
-                                                    <div className="text-3xl font-bold text-gray-600">
-                                                        {
-                                                            latestResult
-                                                                .sentimentBreakdown
-                                                                .neutral
-                                                        }
-                                                        %
-                                                    </div>
-                                                    <div className="text-sm text-gray-800 mt-1">
-                                                        Neutrální
-                                                    </div>
-                                                </div>
-                                                <div className="text-center p-4 bg-red-50 rounded-lg">
-                                                    <div className="text-3xl font-bold text-red-600">
-                                                        {
-                                                            latestResult
-                                                                .sentimentBreakdown
-                                                                .negative
-                                                        }
-                                                        %
-                                                    </div>
-                                                    <div className="text-sm text-red-800 mt-1">
-                                                        Negativní
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <p className="text-gray-500 text-center">
-                                                Data nejsou k dispozici
-                                            </p>
-                                        )}
-                                    </CardContent>
-                                </Card>
-
-                                {/* Konkurenční zmínky */}
-                                {competitorRanking.length > 0 && (
-                                    <Card className="mb-6">
-                                        <CardHeader>
-                                            <CardTitle className="flex items-center justify-between">
-                                                <span>
-                                                    Žebříček brandů v AI
-                                                    odpovědích
-                                                </span>
-                                                <PromptDisplayModal
-                                                    title="Prompt pro detekci konkurence"
-                                                    systemPrompt={`You analyze AI responses to identify all mentioned brands/products and calculate their visibility metrics.`}
-                                                    userPrompt={`Query: ${
-                                                        queries[0] ||
-                                                        "User query"
-                                                    }\n\nTask: Identify ALL brands/products mentioned in the AI response, count their frequency, calculate average text position, and analyze sentiment for each mention.`}
-                                                />
-                                            </CardTitle>
-                                            <CardDescription>
-                                                Srovnání viditelnosti vašeho
-                                                brandu s konkurencí včetně změn
-                                                oproti minulému měsíci
-                                            </CardDescription>
-                                        </CardHeader>
-                                        <CardContent>
-                                            <div className="space-y-2">
-                                                {competitorRanking.map(
-                                                    (comp, index) => (
-                                                        <div
-                                                            key={`ranking-${comp.brand}-${index}`}
-                                                            className={`flex items-center justify-between p-4 rounded-lg border ${
-                                                                comp.brand.toLowerCase() ===
-                                                                brand.toLowerCase()
-                                                                    ? "bg-blue-50 border-blue-200"
-                                                                    : "bg-white"
-                                                            }`}
-                                                        >
-                                                            <div className="flex items-center gap-4 flex-1">
-                                                                <div className="w-12 text-center">
-                                                                <div className="text-2xl font-bold text-gray-700">
-                                                                    #{comp.rank}
-                                                                </div>
-                                                            </div>
-
-                                                                <div className="flex-1">
-                                                                    <div className="font-semibold text-gray-900 mb-1">
-                                                                        {
-                                                                            comp.brand
-                                                                        }
-                                                                        {comp.brand.toLowerCase() ===
-                                                                            brand.toLowerCase() && (
-                                                                            <Badge
-                                                                                variant="default"
-                                                                                className="ml-2"
-                                                                            >
-                                                                                Váš
-                                                                                brand
-                                                                            </Badge>
-                                                                        )}
-                                                                    </div>
-                                                                    <div className="text-sm text-gray-600">
-                                                                        {
-                                                                            comp.count
-                                                                        }{" "}
-                                                                        zmínek ·
-                                                                        Průměrná
-                                                                        pozice:{" "}
-                                                                        {
-                                                                            comp.avgPosition
-                                                                        }{" "}
-                                                                        ·
-                                                                        Sentiment:{" "}
-                                                                        {
-                                                                            comp.sentiment
-                                                                        }
-                                                                    </div>
-                                                                </div>
-
-                                                                <div className="text-right">
-                                                                    <div className="text-sm font-medium text-gray-700">
-                                                                        {Math.round(
-                                                                            (comp.count /
-                                                                                competitorRanking.reduce(
-                                                                                    (
-                                                                                        sum,
-                                                                                        c
-                                                                                    ) =>
-                                                                                        sum +
-                                                                                        c.count,
-                                                                                    0
-                                                                                )) *
-                                                                                100
-                                                                        )}
-                                                                        %
-                                                                    </div>
-                                                                    <div className="text-xs text-gray-500">
-                                                                        podíl
-                                                                        zmínek
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    )
-                                                )}
-                                            </div>
-
-                                            <div className="mt-4 p-3 bg-gray-50 rounded-lg text-xs text-gray-600">
-                                                <strong>Vysvětlení:</strong>{" "}
-                                                Žebříček je sestaven podle počtu
-                                                zmínek a průměrné pozice v
-                                                odpovědích AI. Šipky ukazují
-                                                změnu pozice oproti minulému
-                                                měsíci.
-                                            </div>
-                                        </CardContent>
-                                    </Card>
-                                )}
-
-                                {competitorIntelligenceData.length > 0 && (
-                                    <CompetitiveIntelligence
-                                        myBrand={brand}
-                                        competitors={competitorIntelligenceData}
-                                        totalMentions={totalMentions}
-                                    />
-                                )}
-
-                                {/* Analýza odkazů */}
-                                {latestResult?.linksByBrand &&
-                                    Object.keys(latestResult.linksByBrand)
-                                        .length > 0 && (
-                                        <Card className="p-6">
-                                            <div className="flex items-center justify-between mb-4">
-                                                <h3 className="text-xl font-semibold">
-                                                    Analýza odkazů v AI
-                                                    odpovědích
-                                                </h3>
-                                                <PromptDisplayModal
-                                                    title="Prompt pro analýzu odkazů"
-                                                    systemPrompt={`You are an AI assistant that naturally includes relevant URLs and links in your responses when appropriate.\n\nNote: After generating the response, all URLs are extracted and mapped to their corresponding brands for analysis.`}
-                                                    userPrompt={`${
-                                                        queries[0] ||
-                                                        "User query"
-                                                    }`}
-                                                />
-                                            </div>
-                                            <p className="text-sm text-gray-600 mb-6">
-                                                Nejčastější URL adresy, na které
-                                                AI odpovědi odkazují, rozdělené
-                                                podle brandů.
-                                            </p>
-
-                                            <div className="space-y-6">
-                                                {Object.entries(
-                                                    latestResult.linksByBrand
-                                                ).map(([brandName, links]) => {
-                                                    const isMyBrand =
-                                                        brandName.toLowerCase() ===
-                                                        brand.toLowerCase();
-                                                    const totalLinks = (
-                                                        (links || []) as Array<{
-                                                            count: number;
-                                                        } | null>
-                                                    ).reduce(
-                                                        (sum, link) =>
-                                                            sum +
-                                                            (link?.count || 0),
-                                                        0
-                                                    );
-
-                                                    return (
-                                                        <div
-                                                            key={brandName}
-                                                            className={`p-4 rounded-lg border-2 ${
-                                                                isMyBrand
-                                                                    ? "border-blue-500 bg-blue-50"
-                                                                    : "border-gray-200 bg-gray-50"
-                                                            }`}
-                                                        >
-                                                            <div className="flex items-center justify-between mb-3">
-                                                                <div className="flex items-center gap-2">
-                                                                    <h4 className="font-semibold text-lg">
-                                                                        {
-                                                                            brandName
-                                                                        }
-                                                                    </h4>
-                                                                    {isMyBrand && (
-                                                                        <span className="text-xs bg-blue-500 text-white px-2 py-1 rounded">
-                                                                            Váš
-                                                                            brand
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                                <div className="text-sm text-gray-600">
-                                                                    Celkem
-                                                                    zmínek:{" "}
-                                                                    <span className="font-semibold">
-                                                                        {
-                                                                            totalLinks
-                                                                        }
-                                                                    </span>
-                                                                </div>
-                                                            </div>
-
-                                                            <div className="space-y-2">
-                                                                {(
-                                                                    links as any[]
-                                                                )
-                                                                    .slice(0, 5)
-                                                                    .map(
-                                                                        (
-                                                                            link,
-                                                                            idx
-                                                                        ) => (
-                                                                            <div
-                                                                                key={
-                                                                                    idx
-                                                                                }
-                                                                                className="flex items-center justify-between p-3 bg-white rounded border"
-                                                                            >
-                                                                                <div className="flex-1 min-w-0">
-                                                                                    <a
-                                                                                        href={
-                                                                                            link.url
-                                                                                        }
-                                                                                        target="_blank"
-                                                                                        rel="noopener noreferrer"
-                                                                                        className="text-blue-600 hover:underline text-sm truncate block"
-                                                                                    >
-                                                                                        {
-                                                                                            link.url
-                                                                                        }
-                                                                                    </a>
-                                                                                    {link.title &&
-                                                                                        link.title !==
-                                                                                            link.url && (
-                                                                                            <p className="text-xs text-gray-500 mt-1">
-                                                                                                {
-                                                                                                    link.title
-                                                                                                }
-                                                                                            </p>
-                                                                                        )}
-                                                                                </div>
-                                                                                <div className="ml-4 flex items-center gap-2">
-                                                                                    <span className="text-xs text-gray-500">
-                                                                                        {
-                                                                                            link.count
-                                                                                        }
-
-                                                                                        ×
-                                                                                        zmíněno
-                                                                                    </span>
-                                                                                    <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
-                                                                                        <div
-                                                                                            className="h-full bg-blue-500"
-                                                                                            style={{
-                                                                                                width: `${
-                                                                                                    (link.count /
-                                                                                                        totalLinks) *
-                                                                                                    100
-                                                                                                }%`,
-                                                                                            }}
-                                                                                        />
-                                                                                    </div>
-                                                                                </div>
-                                                                            </div>
-                                                                        )
-                                                                    )}
-                                                            </div>
-
-                                                            {(links as any[])
-                                                                .length > 5 && (
-                                                                <p className="text-xs text-gray-500 mt-2 text-center">
-                                                                    ... a
-                                                                    dalších{" "}
-                                                                    {(
-                                                                        links as any[]
-                                                                    ).length -
-                                                                        5}{" "}
-                                                                    odkazů
-                                                                </p>
-                                                            )}
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-
-                                            <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-                                                <h4 className="font-semibold mb-2">
-                                                    Souhrn
-                                                </h4>
-                                                <div className="grid grid-cols-2 gap-4 text-sm">
-                                                    <div>
-                                                        <span className="text-gray-600">
-                                                            Vaše odkazy:
-                                                        </span>
-                                                        <span className="ml-2 font-semibold">
-                                                            {(
-                                                                (latestResult
-                                                                    .linksByBrand[
-                                                                    brand
-                                                                ] as any[]) ||
-                                                                []
-                                                            ).reduce(
-                                                                (sum, link) =>
-                                                                    sum +
-                                                                    link.count,
-                                                                0
-                                                            )}
-                                                        </span>
-                                                    </div>
-                                                    <div>
-                                                        <span className="text-gray-600">
-                                                            Konkurenční odkazy:
-                                                        </span>
-                                                        <span className="ml-2 font-semibold">
-                                                            {Object.entries(
-                                                                latestResult.linksByBrand
-                                                            )
-                                                                .filter(
-                                                                    ([b]) =>
-                                                                        b.toLowerCase() !==
-                                                                        brand.toLowerCase()
-                                                                )
-                                                                .reduce(
-                                                                    (
-                                                                        sum,
-                                                                        [
-                                                                            ,
-                                                                            links,
-                                                                        ]
-                                                                    ) =>
-                                                                        sum +
-                                                                        (
-                                                                            links as any[]
-                                                                        ).reduce(
-                                                                            (
-                                                                                s,
-                                                                                l
-                                                                            ) =>
-                                                                                s +
-                                                                                l.count,
-                                                                            0
-                                                                        ),
-                                                                    0
-                                                                )}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </Card>
-                                    )}
-
-                                {/* Doporučení */}
-                                <Card>
-                                    <CardHeader>
-                                        <CardTitle>
-                                            Strategická doporučení
-                                        </CardTitle>
-                                    </CardHeader>
-                                    <CardContent>
-                                        {latestResult.recommendations &&
-                                        latestResult.recommendations.length >
-                                            0 ? (
-                                            <ul className="list-disc list-inside space-y-1 ml-4">
-                                                {latestResult.recommendations.map(
-                                                    (rec, idx) => (
-                                                        <li key={idx}>{rec}</li>
-                                                    )
-                                                )}
-                                            </ul>
-                                        ) : (
-                                            <p className="text-gray-500 text-center">
-                                                Doporučení nejsou k dispozici
-                                            </p>
-                                        )}
-                                    </CardContent>
-                                </Card>
-
-                                {latestResult?.deepContextAnalysis && (
-                                    <DeepContextAnalysis
+                                    {/* CHANGE: Added ExportManager component before closing div */}
+                                    <ExportManager
+                                        analysisData={latestResult}
                                         brandName={brand}
-                                        mentions={
-                                            latestResult.deepContextAnalysis.categories.filter(
-                                                (c) => c
-                                            ) as any
-                                        }
-                                        quotes={
-                                            latestResult.deepContextAnalysis
-                                                .quotes
-                                        }
                                     />
-                                )}
-
-                                {/* CHANGE: Added ActionItems component */}
-                                <ActionItems
-                                    brandScore={latestResult.globalScore || 0}
-                                    competitorAverage={
-                                        latestResult.competitorMentions
-                                            ?.length > 0
-                                            ? latestResult.competitorMentions.reduce(
-                                                  (sum: number, c: any) =>
-                                                      sum + (c.score || 0),
-                                                  0
-                                              ) /
-                                              latestResult.competitorMentions
-                                                  .length
-                                            : 0
-                                    }
-                                    regionPerformance={
-                                        (latestResult.regionPerformance || [])
-                                            .filter((r) => r)
-                                            .map((r) => ({
-                                                region: r.region,
-                                                score:
-                                                    r.score ||
-                                                    r.averageScore ||
-                                                    0,
-                                            })) as Array<{
-                                            region: string;
-                                            score: number;
-                                        }>
-                                    }
-                                    personaPerformance={
-                                        (latestResult.personaPerformance || [])
-                                            .filter((p) => p)
-                                            .map((p) => ({
-                                                persona: p.persona,
-                                                score:
-                                                    p.score ||
-                                                    p.averageScore ||
-                                                    0,
-                                            })) as Array<{
-                                            persona: string;
-                                            score: number;
-                                        }>
-                                    }
-                                />
-
-                                {/* CHANGE: Added ExportManager component before closing div */}
-                                <ExportManager
-                                    analysisData={latestResult}
-                                    brandName={brand}
-                                />
-                            </div>
-                        )}
+                                </div>
+                            )}
                     </div>
                 </div>
             </div>

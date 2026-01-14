@@ -28,18 +28,10 @@ export function Dashboard() {
   const [modelComparison, setModelComparison] = useState<any[]>([])
 
   useEffect(() => {
-    const trendHistory = JSON.parse(localStorage.getItem("trend_data") || "[]")
     const history = JSON.parse(localStorage.getItem("analysis_history") || "[]")
 
-    // Combine both sources for comprehensive stats
-    const allData = [
-      ...history,
-      ...trendHistory.map((t: any) => ({
-        visibilityScore: t.score,
-        brandMentions: { found: t.mentions > 0, count: t.mentions },
-        model: "Tracked",
-      })),
-    ]
+    // Sort allData by timestamp to ensure chronological order for trend calculations
+    const allData = history.sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
     if (allData.length > 0) {
       const scores = allData.map((item: any) => item.visibilityScore)

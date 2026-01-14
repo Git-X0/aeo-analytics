@@ -25,10 +25,49 @@ export function AnalysisForm() {
   const [loading, setLoading] = useState(false)
   const [analysis, setAnalysis] = useState<any>(null)
 
+  // Load states from localStorage on mount
+  useEffect(() => {
+    setQuery(localStorage.getItem("analysisForm_query") || "")
+    setBrand(localStorage.getItem("analysisForm_brand") || "")
+    setCompetitors(localStorage.getItem("analysisForm_competitors") || "")
+    setModel(localStorage.getItem("analysisForm_model") || "openai/gpt-5-mini")
+  }, [])
+
+  // Save states to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem("analysisForm_query", query)
+  }, [query])
+
+  useEffect(() => {
+    localStorage.setItem("analysisForm_brand", brand)
+  }, [brand])
+
+  useEffect(() => {
+    localStorage.setItem("analysisForm_competitors", competitors)
+  }, [competitors])
+
+  useEffect(() => {
+    localStorage.setItem("analysisForm_model", model)
+  }, [model])
+
+  const resetForm = () => {
+    setQuery("")
+    setBrand("")
+    setCompetitors("")
+    setModel("openai/gpt-5-mini")
+    setAnalysis(null)
+    // Also clear localStorage for these fields
+    localStorage.removeItem("analysisForm_query")
+    localStorage.removeItem("analysisForm_brand")
+    localStorage.removeItem("analysisForm_competitors")
+    localStorage.removeItem("analysisForm_model")
+  }
+
   const handleAnalyze = async () => {
     if (!query || !brand) return
 
     setLoading(true)
+    setAnalysis(null) // Clear previous analysis while loading
     try {
       const response = await fetch("/api/analyze", {
         method: "POST",
@@ -163,6 +202,16 @@ export function AnalysisForm() {
               </>
             )}
           </Button>
+          <Button
+            onClick={resetForm}
+            variant="outline"
+            className="w-full gap-2"
+            size="lg"
+            disabled={loading}
+          >
+            Vyčistit formulář
+          </Button>
+
         </div>
       </Card>
 
