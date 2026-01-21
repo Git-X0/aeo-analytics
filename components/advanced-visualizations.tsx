@@ -333,13 +333,13 @@ export function AdvancedVisualizations({ data }: { data: VisualizationData }) {
                 })}
 
                 {/* Draw nodes */}
-                {networkNodes.map((node) => {
+                {networkNodes.map((node, idx) => {
                   const isMain = node.type === "main"
                   const fillColor = isMain ? "#3b82f6" : "#94a3b8"
 
                   return (
                     <g
-                      key={node.id}
+                      key={`${node.id}-${idx}`}
                       onMouseEnter={() => setSelectedBrand(node.id)}
                       onMouseLeave={() => setSelectedBrand(null)}
                       className="cursor-pointer"
